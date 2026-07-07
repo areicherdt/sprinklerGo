@@ -1,5 +1,7 @@
 # sprinklerGo
 
+[![CI](https://github.com/areicherdt/sprinklerGo/actions/workflows/ci.yml/badge.svg)](https://github.com/areicherdt/sprinklerGo/actions/workflows/ci.yml)
+
 Go-Port von [sprinklers_pi](https://github.com/rszimm/sprinklers_pi) — eine
 Bewässerungssteuerung für den Raspberry Pi mit REST-API und modernem Web-Interface
 in einem einzigen Binary. Analyse und Architektur: [PLAN.md](PLAN.md).
