@@ -1,0 +1,17 @@
+# Build-Artefakte
+bin/
+web/dist/
+web/node_modules/
+
+# Laufzeitdaten
+config.json
+*.db
+*.db-wal
+*.db-shm
+
+# Referenzquelle des Originals (upstream: github.com/rszimm/sprinklers_pi)
+sprinklers_pi-master/
+
+# Lokales
+.claude/
+.DS_Store

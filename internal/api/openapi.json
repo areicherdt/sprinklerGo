@@ -1,0 +1,480 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "sprinklerGo API",
+    "description": "REST-API der sprinklerGo-Bewässerungssteuerung (Go-Port von sprinklers_pi). Zonen- und Programm-IDs sind 0-basierte Indizes; Startzeiten sind Minuten seit lokaler Mitternacht; Laufzeiten sind Minuten (0-255).",
+    "version": "1.0.0",
+    "license": { "name": "GPL-2.0", "identifier": "GPL-2.0-only" }
+  },
+  "paths": {
+    "/api/state": {
+      "get": {
+        "summary": "Systemstatus",
+        "operationId": "getState",
+        "responses": {
+          "200": {
+            "description": "Aktueller Status",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/State" } } }
+          }
+        }
+      }
+    },
+    "/api/zones": {
+      "get": {
+        "summary": "Zonenliste inkl. Live-Zustand",
+        "operationId": "getZones",
+        "responses": {
+          "200": {
+            "description": "Alle Zonen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "zones": { "type": "array", "items": { "$ref": "#/components/schemas/Zone" } },
+                    "pumpOn": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/zones/{id}": {
+      "put": {
+        "summary": "Zone ändern",
+        "operationId": "updateZone",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ZoneInput" } } }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/zones/{id}/manual": {
+      "post": {
+        "summary": "Zone manuell an/aus (an = unbegrenzt bis Stopp)",
+        "operationId": "manualZone",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["on"],
+                "properties": { "on": { "type": "boolean" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/schedules": {
+      "get": {
+        "summary": "Programmliste inkl. nächster Läufe",
+        "operationId": "getSchedules",
+        "responses": {
+          "200": {
+            "description": "Alle Programme",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "schedules": { "type": "array", "items": { "$ref": "#/components/schemas/Schedule" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Programm anlegen",
+        "operationId": "createSchedule",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleInput" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Angelegt",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "id": { "type": "integer" } } }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/schedules/{id}": {
+      "get": {
+        "summary": "Einzelnes Programm",
+        "operationId": "getSchedule",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": {
+          "200": {
+            "description": "Programm",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Schedule" } } }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "put": {
+        "summary": "Programm ändern",
+        "operationId": "updateSchedule",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleInput" } } }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "summary": "Programm löschen (nachfolgende IDs rücken auf)",
+        "operationId": "deleteSchedule",
+        "parameters": [{ "$ref": "#/components/parameters/id" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/quickrun": {
+      "post": {
+        "summary": "Schnellstart: bestehendes Programm sofort ODER Ad-hoc-Laufzeiten",
+        "description": "Genau eines der Felder scheduleId/durations angeben. Ein Programmstart wendet saisonale und Wetter-Anpassung an; Ad-hoc-Laufzeiten laufen unangepasst.",
+        "operationId": "quickRun",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scheduleId": { "type": "integer" },
+                  "durations": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 255 } }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/stop": {
+      "post": {
+        "summary": "Alles stoppen (Zonen aus, Tagesplan neu aufbauen)",
+        "operationId": "stopAll",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/system/run": {
+      "put": {
+        "summary": "Scheduler global an/aus",
+        "operationId": "setRunSchedules",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["enabled"],
+                "properties": { "enabled": { "type": "boolean" } }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Einstellungen lesen",
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "Einstellungen",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Settings" } } }
+          }
+        }
+      },
+      "put": {
+        "summary": "Einstellungen ersetzen (vollständiges Objekt)",
+        "operationId": "updateSettings",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Settings" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Gespeichert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "restartRequired": { "type": "boolean", "description": "true, wenn der Web-Port geändert wurde" },
+                    "outputError": { "type": "string", "description": "gesetzt, wenn das Hardware-Backend nicht initialisiert werden konnte" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/weather/check": {
+      "get": {
+        "summary": "Wetter-Diagnose: Provider abfragen und Skalierung berechnen",
+        "operationId": "weatherCheck",
+        "responses": {
+          "200": {
+            "description": "Diagnoseergebnis",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WeatherCheck" } } }
+          }
+        }
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "summary": "Bewässerungsverlauf (roh oder gruppiert)",
+        "operationId": "getLogs",
+        "parameters": [
+          {
+            "name": "group", "in": "query",
+            "schema": { "type": "string", "enum": ["none", "hour", "day", "month"], "default": "none" },
+            "description": "day gruppiert nach Wochentag (0 = Sonntag), month nach Monat (1-12)"
+          },
+          { "name": "start", "in": "query", "schema": { "type": "integer" }, "description": "Unix-Sekunden (Default: jetzt - 7 Tage)" },
+          { "name": "end", "in": "query", "schema": { "type": "integer" }, "description": "Unix-Sekunden (Default: jetzt)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "group=none liefert entries, sonst series",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "group": { "type": "string" },
+                    "entries": { "type": "array", "items": { "$ref": "#/components/schemas/LogEntry" } },
+                    "series": { "type": "array", "items": { "$ref": "#/components/schemas/ZoneSeries" } }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "id": {
+        "name": "id", "in": "path", "required": true,
+        "schema": { "type": "integer", "minimum": 0 },
+        "description": "0-basierter Index"
+      }
+    },
+    "responses": {
+      "Ok": {
+        "description": "Erfolg",
+        "content": {
+          "application/json": {
+            "schema": { "type": "object", "properties": { "ok": { "type": "boolean" } } }
+          }
+        }
+      },
+      "Error": {
+        "description": "Fehler",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["error"],
+              "properties": { "error": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "State": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "string" },
+          "time": { "type": "integer", "description": "Unix-Sekunden" },
+          "schedulerEnabled": { "type": "boolean" },
+          "mode": { "type": "string", "enum": ["idle", "schedule", "manual"] },
+          "zoneId": { "type": "integer", "description": "-1 = keine aktive Zone" },
+          "zoneName": { "type": "string" },
+          "scheduleId": { "type": "integer", "description": "-1 = keines, 99 = Schnellstart" },
+          "scheduleName": { "type": "string" },
+          "remainingSeconds": { "type": "integer", "description": "-1 = unbegrenzt (manuell)" },
+          "pendingEvents": { "type": "integer" },
+          "enabledZones": { "type": "integer" },
+          "scheduleCount": { "type": "integer" }
+        }
+      },
+      "Zone": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ZoneInput" },
+          {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer" },
+              "on": { "type": "boolean", "description": "läuft gerade" }
+            }
+          }
+        ]
+      },
+      "ZoneInput": {
+        "type": "object",
+        "required": ["name", "enabled", "pump"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 50 },
+          "enabled": { "type": "boolean" },
+          "pump": { "type": "boolean", "description": "Pumpe/Masterventil (Ausgang 0) mitschalten" }
+        }
+      },
+      "Schedule": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ScheduleInput" },
+          {
+            "type": "object",
+            "properties": {
+              "id": { "type": "integer" },
+              "nextRun": {
+                "oneOf": [{ "$ref": "#/components/schemas/NextRun" }, { "type": "null" }]
+              }
+            }
+          }
+        ]
+      },
+      "ScheduleInput": {
+        "type": "object",
+        "required": ["name", "enabled", "kind"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 50 },
+          "enabled": { "type": "boolean" },
+          "kind": { "type": "string", "enum": ["weekly", "interval"] },
+          "days": {
+            "type": "array", "items": { "type": "boolean" }, "minItems": 7, "maxItems": 7,
+            "description": "Index 0 = Sonntag; nur bei kind=weekly"
+          },
+          "interval": { "type": "integer", "minimum": 1, "maximum": 365, "description": "alle N Tage; nur bei kind=interval" },
+          "restriction": { "type": "integer", "enum": [0, 1, 2], "description": "0 = keine, 1 = ungerade Monatstage, 2 = gerade" },
+          "weatherAdjust": { "type": "boolean" },
+          "startTimes": {
+            "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 1439 }, "maxItems": 4,
+            "description": "Minuten seit Mitternacht"
+          },
+          "durations": {
+            "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "description": "Minuten je Zone, Index = Zonen-ID; wird serverseitig auf Zonenanzahl aufgefüllt"
+          }
+        }
+      },
+      "NextRun": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "inDays": { "type": "integer" },
+          "times": { "type": "array", "items": { "type": "integer" } }
+        }
+      },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "webPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "outputType": { "type": "string", "enum": ["none", "script", "gpio+", "gpio-"] },
+          "scriptPath": { "type": "string", "description": "aufgerufen als \"<pfad> <ausgang> <0|1>\"" },
+          "gpioPins": { "type": "array", "items": { "type": "integer" }, "minItems": 16, "maxItems": 16, "description": "BCM-Pins, Index 0 = Pumpe" },
+          "seasonalAdjust": { "type": "integer", "minimum": 0, "maximum": 200 },
+          "weatherProvider": { "type": "string", "enum": ["none", "openmeteo"] },
+          "apiKey": { "type": "string" },
+          "apiSecret": { "type": "string" },
+          "location": { "type": "string", "description": "\"Breitengrad,Längengrad\" bei openmeteo" },
+          "clock24h": { "type": "boolean" },
+          "runSchedules": { "type": "boolean" },
+          "logRetentionMonths": { "type": "integer", "minimum": 0, "maximum": 120, "description": "0 = unbegrenzt" }
+        }
+      },
+      "WeatherCheck": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string" },
+          "noProvider": { "type": "boolean" },
+          "scale": { "type": "integer", "minimum": 0, "maximum": 200 },
+          "vals": {
+            "type": "object",
+            "properties": {
+              "valid": { "type": "boolean" },
+              "keyNotFound": { "type": "boolean" },
+              "error": { "type": "string" },
+              "minHumidity": { "type": "integer" },
+              "maxHumidity": { "type": "integer" },
+              "meanTempF": { "type": "integer" },
+              "precipYesterday": { "type": "integer", "description": "1/100 Zoll" },
+              "precipToday": { "type": "integer", "description": "1/100 Zoll" },
+              "windMph": { "type": "integer", "description": "mph * 10" },
+              "uv": { "type": "integer", "description": "UV-Index * 10" }
+            }
+          }
+        }
+      },
+      "LogEntry": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "integer", "description": "Unix-Sekunden" },
+          "zoneId": { "type": "integer" },
+          "seconds": { "type": "integer" },
+          "scheduleId": { "type": "integer", "description": "-1 = manuell, 99 = Schnellstart" },
+          "seasonal": { "type": "integer", "description": "Prozent, -1 = nicht angewendet" },
+          "weather": { "type": "integer", "description": "Prozent, -1 = nicht angewendet" }
+        }
+      },
+      "ZoneSeries": {
+        "type": "object",
+        "properties": {
+          "zoneId": { "type": "integer" },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "bucket": { "type": "integer" },
+                "seconds": { "type": "integer" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

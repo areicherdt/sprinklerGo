@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  default: standard
+  disable:
+    # Best-effort writes (HTTP responses, log rows, safety shut-offs) are
+    # intentionally unchecked in this codebase.
+    - errcheck
+  exclusions:
+    paths:
+      # npm packages ship stray Go files (e.g. flatted/golang)
+      - web

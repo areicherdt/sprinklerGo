@@ -1,0 +1,29 @@
+# systemd unit for sprinklerGo.
+# Install:
+#   sudo useradd --system --home /var/lib/sprinklerd --groups gpio sprinklerd
+#   sudo cp sprinklerd /usr/local/bin/
+#   sudo cp deploy/sprinklerd.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sprinklerd
+[Unit]
+Description=sprinklerGo irrigation controller
+Documentation=https://github.com/rszimm/sprinklers_pi
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sprinklerd
+SupplementaryGroups=gpio
+StateDirectory=sprinklerd
+WorkingDirectory=/var/lib/sprinklerd
+ExecStart=/usr/local/bin/sprinklerd -config /var/lib/sprinklerd/config.json -db /var/lib/sprinklerd/zonelog.db
+Restart=on-failure
+RestartSec=5
+
+# Hardening (kept moderate so /dev/gpiochip0 and external scripts still work)
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
