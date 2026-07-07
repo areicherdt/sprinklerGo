@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, Schedule } from '../api'
+import { Schedule, api } from '../api'
+import { ConfirmDialog, useToast } from '../components'
 import { WEEKDAYS, fmtNextRun, fmtTime, usePoll } from '../util'
 
 function daysLabel(s: Schedule): string {
@@ -13,17 +15,51 @@ function daysLabel(s: Schedule): string {
 
 export default function Schedules() {
   const [data, refresh, error] = usePoll(() => api.schedules(), 10000)
+  const [toDelete, setToDelete] = useState<Schedule | null>(null)
   const nav = useNavigate()
+  const toast = useToast()
 
-  const remove = async (id: number, name: string) => {
-    if (!window.confirm(`Programm „${name}" wirklich löschen?`)) return
-    await api.deleteSchedule(id).catch(() => {})
+  const remove = async () => {
+    if (!toDelete) return
+    try {
+      await api.deleteSchedule(toDelete.id)
+      toast(`Programm „${toDelete.name}" gelöscht.`)
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+    setToDelete(null)
     refresh()
   }
 
-  const runNow = async (id: number) => {
-    await api.quickRunSchedule(id).catch((e: Error) => window.alert(e.message))
-    nav('/')
+  const duplicate = async (s: Schedule) => {
+    try {
+      const full = await api.schedule(s.id)
+      await api.createSchedule({
+        name: `${full.name} (Kopie)`,
+        enabled: false,
+        kind: full.kind,
+        days: full.days,
+        interval: full.interval,
+        restriction: full.restriction,
+        weatherAdjust: full.weatherAdjust,
+        startTimes: full.startTimes,
+        durations: full.durations,
+      })
+      toast(`Programm „${s.name}" dupliziert (Kopie ist deaktiviert).`)
+      refresh()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const runNow = async (s: Schedule) => {
+    try {
+      await api.quickRunSchedule(s.id)
+      toast(`Programm „${s.name}" gestartet.`)
+      nav('/')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
   }
 
   return (
@@ -38,7 +74,10 @@ export default function Schedules() {
 
       {data && data.schedules.length === 0 && (
         <div className="card">
-          <p className="muted">Noch keine Programme angelegt.</p>
+          <p className="muted">
+            Noch keine Programme angelegt. <Link to="/schedules/new">Jetzt das erste anlegen</Link>{' '}
+            — oder unter <Link to="/quickrun">Schnellstart</Link> direkt bewässern.
+          </p>
         </div>
       )}
 
@@ -60,17 +99,26 @@ export default function Schedules() {
               </p>
             </div>
             <div className="row">
-              <button onClick={() => runNow(s.id)}>Jetzt starten</button>
+              <button onClick={() => runNow(s)}>Jetzt starten</button>
               <Link to={`/schedules/${s.id}`}>
                 <button>Bearbeiten</button>
               </Link>
-              <button className="danger" onClick={() => remove(s.id, s.name)}>
+              <button onClick={() => duplicate(s)}>Duplizieren</button>
+              <button className="danger" onClick={() => setToDelete(s)}>
                 Löschen
               </button>
             </div>
           </div>
         </div>
       ))}
+
+      <ConfirmDialog
+        open={toDelete !== null}
+        title="Programm löschen?"
+        text={`„${toDelete?.name}" wird endgültig gelöscht. Bereits protokollierte Läufe bleiben im Verlauf erhalten.`}
+        onConfirm={remove}
+        onCancel={() => setToDelete(null)}
+      />
     </>
   )
 }

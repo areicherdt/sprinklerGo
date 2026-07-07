@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, Schedule, Zone } from '../api'
+import { useToast } from '../components'
 
 export default function QuickRun() {
   const [zones, setZones] = useState<Zone[]>([])
@@ -9,6 +10,7 @@ export default function QuickRun() {
   const [selected, setSelected] = useState<number>(-1)
   const [error, setError] = useState<string | null>(null)
   const nav = useNavigate()
+  const toast = useToast()
 
   useEffect(() => {
     api
@@ -27,6 +29,7 @@ export default function QuickRun() {
   const startSchedule = async () => {
     try {
       await api.quickRunSchedule(selected)
+      toast('Bewässerung gestartet.')
       nav('/')
     } catch (e) {
       setError((e as Error).message)
@@ -41,6 +44,7 @@ export default function QuickRun() {
     }
     try {
       await api.quickRunDurations(list)
+      toast('Bewässerung gestartet.')
       nav('/')
     } catch (e) {
       setError((e as Error).message)

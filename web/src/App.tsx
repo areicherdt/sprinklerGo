@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
+import { ToastProvider } from './components'
 import Dashboard from './pages/Dashboard'
 import Zones from './pages/Zones'
 import Schedules from './pages/Schedules'
@@ -18,7 +19,7 @@ const NAV = [
 
 export default function App() {
   return (
-    <>
+    <ToastProvider>
       <header className="app-header">
         <div className="inner">
           <div className="brand">
@@ -50,6 +51,6 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
-    </>
+    </ToastProvider>
   )
 }

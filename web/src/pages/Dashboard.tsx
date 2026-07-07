@@ -1,28 +1,94 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
-import { fmtNextRun, fmtSeconds, usePoll } from '../util'
+import { LogEntry, Schedule, api } from '../api'
+import { useToast } from '../components'
+import { ticking, useLiveState, useNowSecond } from '../live'
+import { fmtClock, fmtNextRun, fmtSeconds, scheduleLabel } from '../util'
+
+interface TimelineRow {
+  at: number
+  status: 'done' | 'run' | 'plan'
+  label: string
+  info: string
+}
 
 export default function Dashboard() {
-  const [state, refresh, error] = usePoll(() => api.state(), 3000)
-  const [scheds] = usePoll(() => api.schedules(), 10000)
+  const { state, receivedAt, error } = useLiveState()
+  const now = useNowSecond()
+  const toast = useToast()
+  const [scheds, setScheds] = useState<Schedule[]>([])
+  const [completed, setCompleted] = useState<LogEntry[]>([])
 
-  const toggleRun = async (enabled: boolean) => {
-    await api.setRun(enabled).catch(() => {})
-    refresh()
-  }
-  const stop = async () => {
-    await api.stop().catch(() => {})
-    refresh()
-  }
+  // Schedules and today's finished runs; refreshed whenever a run starts or
+  // ends (mode flips) so the timeline stays current.
+  const mode = state?.mode
+  useEffect(() => {
+    api
+      .schedules()
+      .then((r) => setScheds(r.schedules))
+      .catch(() => {})
+    const midnight = new Date()
+    midnight.setHours(0, 0, 0, 0)
+    api
+      .logEntries(Math.floor(midnight.getTime() / 1000), Math.floor(Date.now() / 1000) + 60)
+      .then((r) => setCompleted(r.entries))
+      .catch(() => {})
+  }, [mode])
+
+  const act = (fn: Promise<unknown>, okMsg: string) =>
+    fn.then(() => toast(okMsg)).catch((e: Error) => toast(e.message, 'error'))
 
   const running = state && state.mode !== 'idle'
-  const nextRuns = (scheds?.schedules ?? [])
+  const remaining = state ? ticking(state.remainingSeconds, receivedAt, now) : 0
+  const rainDelayActive = !!state && state.rainDelayUntil > 0 && state.rainDelayUntil * 1000 > now
+
+  const schedNames = useMemo(() => new Map(scheds.map((s) => [s.id, s.name])), [scheds])
+
+  const timeline = useMemo<TimelineRow[]>(() => {
+    if (!state) return []
+    const rows: TimelineRow[] = []
+    // Finished runs, aggregated per trigger.
+    const agg = new Map<number, { at: number; seconds: number; zones: number }>()
+    for (const e of completed) {
+      const cur = agg.get(e.scheduleId) ?? { at: e.start, seconds: 0, zones: 0 }
+      cur.at = Math.min(cur.at, e.start)
+      cur.seconds += e.seconds
+      cur.zones++
+      agg.set(e.scheduleId, cur)
+    }
+    for (const [id, a] of agg) {
+      rows.push({
+        at: a.at,
+        status: 'done',
+        label: scheduleLabel(id, schedNames),
+        info: `${a.zones} ${a.zones === 1 ? 'Zone' : 'Zonen'}, ${fmtSeconds(a.seconds)}`,
+      })
+    }
+    if (state.mode === 'schedule' && state.queue.length > 0) {
+      const done = state.queue.filter((q) => q.done).length + 1
+      rows.push({
+        at: state.queue[0].start,
+        status: 'run',
+        label: state.scheduleName ?? 'Programm',
+        info: `läuft — Zone ${done}/${state.queue.length}`,
+      })
+    }
+    if (state.mode === 'manual') {
+      rows.push({ at: state.time, status: 'run', label: `${state.zoneName}`, info: 'manuell' })
+    }
+    for (const p of state.planned) {
+      rows.push({ at: p.at, status: 'plan', label: p.scheduleName, info: 'geplant' })
+    }
+    return rows.sort((a, b) => a.at - b.at)
+  }, [state, completed, schedNames])
+
+  const nextRuns = scheds
     .filter((s) => s.enabled && s.nextRun)
-    .sort((a, b) => {
-      const ka = `${a.nextRun!.date} ${String(a.nextRun!.times[0]).padStart(4, '0')}`
-      const kb = `${b.nextRun!.date} ${String(b.nextRun!.times[0]).padStart(4, '0')}`
-      return ka.localeCompare(kb)
-    })
+    .sort((a, b) =>
+      `${a.nextRun!.date} ${String(a.nextRun!.times[0]).padStart(4, '0')}`.localeCompare(
+        `${b.nextRun!.date} ${String(b.nextRun!.times[0]).padStart(4, '0')}`,
+      ),
+    )
 
   return (
     <>
@@ -49,14 +115,34 @@ export default function Dashboard() {
               <div className="hero-number">{state.zoneName}</div>
               <p className="muted">
                 {state.mode === 'manual' ? (
-                  'Manueller Betrieb — läuft bis zum Stopp'
+                  remaining < 0 ? (
+                    'Manuell — läuft bis zum Stopp'
+                  ) : (
+                    <>Manuell — noch {fmtSeconds(remaining)}</>
+                  )
                 ) : (
                   <>
-                    Programm „{state.scheduleName}" — noch {fmtSeconds(state.remainingSeconds)}
+                    Programm „{state.scheduleName}&quot; — Zone noch {fmtSeconds(remaining)}
                   </>
                 )}
               </p>
-              <button className="danger" onClick={stop}>
+              {state.mode === 'schedule' && state.queue.length > 0 && (
+                <div
+                  className="progress"
+                  role="img"
+                  aria-label="Fortschritt der Zonen des laufenden Programms"
+                >
+                  {state.queue.map((q) => (
+                    <div
+                      key={q.zoneId}
+                      className={`seg ${q.done ? 'done' : q.active ? 'active' : ''}`}
+                      style={{ flexGrow: Math.max(1, q.end - q.start) }}
+                      title={q.zoneName}
+                    />
+                  ))}
+                </div>
+              )}
+              <button className="danger" onClick={() => act(api.stop(), 'Bewässerung gestoppt.')}>
                 Alles stoppen
               </button>
             </>
@@ -74,7 +160,12 @@ export default function Dashboard() {
                 <input
                   type="checkbox"
                   checked={state.schedulerEnabled}
-                  onChange={(e) => toggleRun(e.target.checked)}
+                  onChange={(e) =>
+                    act(
+                      api.setRun(e.target.checked),
+                      e.target.checked ? 'Automatik eingeschaltet.' : 'Automatik ausgeschaltet.',
+                    )
+                  }
                 />
                 <span className="slider" />
               </label>
@@ -87,6 +178,83 @@ export default function Dashboard() {
             </p>
           )}
         </div>
+
+        <div className="card">
+          <h2>Regenpause</h2>
+          {state &&
+            (rainDelayActive ? (
+              <>
+                <p>
+                  Aktiv bis{' '}
+                  <strong>
+                    {new Date(state.rainDelayUntil * 1000).toLocaleDateString('de-DE', {
+                      weekday: 'short',
+                      day: '2-digit',
+                      month: '2-digit',
+                    })}{' '}
+                    {fmtClock(state.rainDelayUntil)}
+                  </strong>
+                  {' — '}Programme starten nicht, manuelle Bewässerung bleibt möglich.
+                </p>
+                <button onClick={() => act(api.rainDelay(0), 'Regenpause aufgehoben.')}>
+                  Aufheben
+                </button>
+              </>
+            ) : (
+              <div className="row">
+                {[24, 48, 72].map((h) => (
+                  <button
+                    key={h}
+                    onClick={() => act(api.rainDelay(h), `Regenpause für ${h} h aktiviert.`)}
+                  >
+                    {h} h
+                  </button>
+                ))}
+              </div>
+            ))}
+          {!rainDelayActive && (
+            <p className="muted small">Setzt Programmstarts vorübergehend aus.</p>
+          )}
+        </div>
+
+        <div className="card">
+          <h2>Wetter</h2>
+          {state &&
+            (state.weather.provider === 'none' ? (
+              <p className="muted">
+                Kein Wetter-Anbieter konfiguriert. <Link to="/settings">Jetzt einrichten</Link>
+              </p>
+            ) : (
+              <>
+                <div className="hero-number">{state.weather.scale} %</div>
+                <p className="muted small">
+                  Aktuelle Laufzeit-Skalierung ({state.weather.provider})
+                  {state.weather.fetchedAt > 0 && <> · Stand {fmtClock(state.weather.fetchedAt)}</>}
+                  {!state.weather.valid && ' · keine gültigen Daten, es gilt 100 %'}
+                </p>
+              </>
+            ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Heute</h2>
+        {timeline.length === 0 ? (
+          <p className="muted">
+            Heute {state?.schedulerEnabled ? 'keine Läufe' : '— die Automatik ist ausgeschaltet'}.
+          </p>
+        ) : (
+          <ul className="timeline">
+            {timeline.map((row, i) => (
+              <li key={i} className={row.status}>
+                <span className="time">{fmtClock(row.at)}</span>
+                <span className="dot" />
+                <span className="label">{row.label}</span>
+                <span className="muted small">{row.info}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="card">
@@ -95,10 +263,7 @@ export default function Dashboard() {
           <Link to="/schedules">Programme verwalten</Link>
         </div>
         {nextRuns.length === 0 ? (
-          <p className="muted">
-            Keine anstehenden Läufe.{' '}
-            {state && !state.schedulerEnabled && 'Die Automatik ist ausgeschaltet.'}
-          </p>
+          <p className="muted">Keine anstehenden Läufe.</p>
         ) : (
           <div className="table-wrap">
             <table>

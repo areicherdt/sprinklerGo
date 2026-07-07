@@ -1,5 +1,10 @@
 # Modernisierungsplan (Phase 2): sprinklerGo
 
+> **Umsetzungsstand (2026-07-07):** M7 (Prozess-Fundament), M8 (Workflow-Kern)
+> und M9 (UI-Modernisierung) sind umgesetzt und getestet; der GitHub-Push aus
+> M7 wartet auf `gh auth login`. Offen: M11 (MQTT/Home Assistant), M10
+> (Bewässerungs-Feinheiten), M12 (Auth & Deployment).
+
 Der Basis-Port (PLAN.md, M1–M6) hat die Original-Semantik von sprinklers_pi
 bewusst 1:1 übernommen — inklusive einiger Konzepte von 2013. Dieser Plan
 benennt, **was davon modernisiert werden sollte**, und bringt UI, Bewässerungs-

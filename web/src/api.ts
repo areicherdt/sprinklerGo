@@ -1,5 +1,27 @@
 // Typed client for the sprinklerGo REST API.
 
+export interface PlannedStart {
+  scheduleId: number
+  scheduleName: string
+  at: number
+}
+
+export interface QueuedZoneRun {
+  zoneId: number
+  zoneName: string
+  start: number
+  end: number
+  done: boolean
+  active: boolean
+}
+
+export interface WeatherInfo {
+  provider: string
+  scale: number
+  valid: boolean
+  fetchedAt: number
+}
+
 export interface StateDTO {
   version: string
   time: number
@@ -13,6 +35,13 @@ export interface StateDTO {
   pendingEvents: number
   enabledZones: number
   scheduleCount: number
+  rainDelayUntil: number
+  clock24h: boolean
+  zonesOn: boolean[]
+  pumpOn: boolean
+  planned: PlannedStart[]
+  queue: QueuedZoneRun[]
+  weather: WeatherInfo
 }
 
 export interface Zone {
@@ -60,6 +89,7 @@ export interface Settings {
   clock24h: boolean
   runSchedules: boolean
   logRetentionMonths: number
+  manualTimerMinutes: number
 }
 
 export interface SaveSettingsResult {
@@ -126,7 +156,9 @@ export const api = {
   zones: () => req<{ zones: Zone[]; pumpOn: boolean }>('GET', '/api/zones'),
   updateZone: (id: number, z: { name: string; enabled: boolean; pump: boolean }) =>
     req('PUT', `/api/zones/${id}`, z),
-  manual: (id: number, on: boolean) => req('POST', `/api/zones/${id}/manual`, { on }),
+  manual: (id: number, on: boolean, minutes?: number) =>
+    req('POST', `/api/zones/${id}/manual`, minutes === undefined ? { on } : { on, minutes }),
+  rainDelay: (hours: number) => req('PUT', '/api/rain-delay', { hours }),
 
   schedules: () => req<{ schedules: Schedule[] }>('GET', '/api/schedules'),
   schedule: (id: number) => req<Schedule>('GET', `/api/schedules/${id}`),

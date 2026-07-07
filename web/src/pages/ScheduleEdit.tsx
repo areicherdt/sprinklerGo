@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { api, SchedulePayload, Zone } from '../api'
-import { WEEKDAYS, fmtTime, parseTime } from '../util'
+import { SchedulePayload, Zone, api } from '../api'
+import { Stepper, useToast } from '../components'
+import { WEEKDAYS, fmtTime, nextRunPreview, parseTime } from '../util'
 
 interface TimeSlot {
   enabled: boolean
@@ -20,10 +21,23 @@ const EMPTY: SchedulePayload = {
   durations: [],
 }
 
+function previewLabel(p: { day: Date; inDays: number; times: number[] }): string {
+  const times = p.times.map(fmtTime).join(', ')
+  if (p.inDays === 0) return `Heute ${times}`
+  if (p.inDays === 1) return `Morgen ${times}`
+  const day = p.day.toLocaleDateString('de-DE', {
+    weekday: 'short',
+    day: '2-digit',
+    month: '2-digit',
+  })
+  return `${day} ${times}`
+}
+
 export default function ScheduleEdit() {
   const { id } = useParams()
   const isNew = id === 'new'
   const nav = useNavigate()
+  const toast = useToast()
 
   const [form, setForm] = useState<SchedulePayload>(EMPTY)
   const [slots, setSlots] = useState<TimeSlot[]>(
@@ -78,27 +92,46 @@ export default function ScheduleEdit() {
     patch({ days })
   }
 
-  const setDuration = (zoneId: number, v: string) => {
+  const setDuration = (zoneId: number, v: number) => {
     const durations = [...form.durations]
-    durations[zoneId] = Math.max(0, Math.min(255, Number(v) || 0))
+    durations[zoneId] = v
     patch({ durations })
   }
 
+  const enabledZones = zones.filter((z) => z.enabled)
+  const startTimes = slots
+    .filter((s) => s.enabled)
+    .map((s) => parseTime(s.value))
+    .filter((n): n is number => n !== null)
+
+  // Cheap enough to recompute on every render — no memoization needed.
+  const preview = nextRunPreview(
+    {
+      enabled: form.enabled,
+      kind: form.kind,
+      days: form.days,
+      interval: form.interval,
+      restriction: form.restriction,
+    },
+    startTimes,
+    new Date(),
+    3,
+  )
+
+  const totalMinutes = enabledZones.reduce((sum, z) => sum + (form.durations[z.id] ?? 0), 0)
+
   const save = async () => {
-    const startTimes: number[] = []
     for (const s of slots) {
-      if (!s.enabled) continue
-      const min = parseTime(s.value)
-      if (min === null) {
+      if (s.enabled && parseTime(s.value) === null) {
         setError(`Ungültige Startzeit: ${s.value}`)
         return
       }
-      startTimes.push(min)
     }
     const payload = { ...form, startTimes }
     try {
       if (isNew) await api.createSchedule(payload)
       else await api.updateSchedule(Number(id), payload)
+      toast(isNew ? 'Programm angelegt.' : 'Programm gespeichert.')
       nav('/schedules')
     } catch (e) {
       setError((e as Error).message)
@@ -226,26 +259,36 @@ export default function ScheduleEdit() {
             </label>
           ))}
         </div>
+
+        <p className="muted small" style={{ marginTop: 12 }}>
+          Nächste Läufe:{' '}
+          {preview.length === 0
+            ? 'keine (Programm aus, keine Startzeit oder kein passender Tag)'
+            : preview.map(previewLabel).join(' · ')}
+        </p>
       </div>
 
       <div className="card">
-        <h2>Laufzeit je Zone (Minuten, 0 = überspringen)</h2>
-        {zones
-          .filter((z) => z.enabled)
-          .map((z) => (
-            <div className="zone-row" key={z.id}>
-              <span className="name">{z.name}</span>
-              <input
-                type="number"
-                min={0}
-                max={255}
-                value={form.durations[z.id] ?? 0}
-                onChange={(e) => setDuration(z.id, e.target.value)}
-              />
-            </div>
-          ))}
-        {zones.filter((z) => z.enabled).length === 0 && (
-          <p className="muted">Keine aktiven Zonen — erst unter „Zonen" welche aktivieren.</p>
+        <div className="row spread">
+          <h2>Laufzeit je Zone (Minuten, 0 = überspringen)</h2>
+          <span className="muted small">
+            Gesamt: <strong>{totalMinutes} min</strong> vor Anpassungen
+          </span>
+        </div>
+        {enabledZones.map((z) => (
+          <div className="zone-row" key={z.id}>
+            <span className="name">{z.name}</span>
+            <Stepper
+              value={form.durations[z.id] ?? 0}
+              min={0}
+              max={255}
+              label={`Laufzeit ${z.name}`}
+              onChange={(v) => setDuration(z.id, v)}
+            />
+          </div>
+        ))}
+        {enabledZones.length === 0 && (
+          <p className="muted">Keine aktiven Zonen — erst unter „Zonen&quot; welche aktivieren.</p>
         )}
       </div>
 

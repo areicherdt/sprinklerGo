@@ -236,6 +236,30 @@ export default function History() {
 
   const zoneNames = useMemo(() => new Map(zones.map((z) => [z.id, z.name])), [zones])
 
+  const exportCSV = () => {
+    if (!entries) return
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
+    const rows = [
+      ['Start', 'Zone', 'Ausloeser', 'Sekunden', 'Saisonal %', 'Wetter %'],
+      ...entries.map((e) => [
+        new Date(e.start * 1000).toISOString(),
+        zoneNames.get(e.zoneId) ?? `Zone ${e.zoneId + 1}`,
+        scheduleLabel(e.scheduleId, schedNames),
+        e.seconds,
+        e.seasonal,
+        e.weather,
+      ]),
+    ]
+    const blob = new Blob([rows.map((r) => r.map(esc).join(';')).join('\n')], {
+      type: 'text/csv;charset=utf-8',
+    })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'bewaesserung-verlauf.csv'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   return (
     <>
       <h1>Verlauf</h1>
@@ -264,6 +288,9 @@ export default function History() {
             </option>
           ))}
         </select>
+        {group === 'none' && entries && entries.length > 0 && (
+          <button onClick={exportCSV}>Als CSV exportieren</button>
+        )}
       </div>
 
       {group !== 'none' && series && (

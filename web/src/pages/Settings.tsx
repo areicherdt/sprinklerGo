@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, Settings as SettingsT, WeatherCheck } from '../api'
+import { useToast } from '../components'
 import { fmtSeconds } from '../util'
 
 export default function Settings() {
@@ -9,6 +10,7 @@ export default function Settings() {
   const [notice, setNotice] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
   const [check, setCheck] = useState<WeatherCheck | null>(null)
+  const toast = useToast()
 
   useEffect(() => {
     api
@@ -42,7 +44,7 @@ export default function Settings() {
         )
       else if (res.restartRequired)
         setNotice('Gespeichert. Der neue Web-Port gilt nach einem Neustart des Dienstes.')
-      else setNotice('Gespeichert.')
+      else toast('Einstellungen gespeichert.')
     } catch (e) {
       setError((e as Error).message)
     }
@@ -193,6 +195,16 @@ export default function Settings() {
             max={120}
             value={form.logRetentionMonths}
             onChange={(e) => patch({ logRetentionMonths: Number(e.target.value) || 0 })}
+          />
+        </label>
+        <label className="field">
+          <span>Timer für manuelle Läufe (Minuten, 0 = unbegrenzt)</span>
+          <input
+            type="number"
+            min={0}
+            max={1440}
+            value={form.manualTimerMinutes}
+            onChange={(e) => patch({ manualTimerMinutes: Number(e.target.value) || 0 })}
           />
         </label>
         <label className="checkbox">
