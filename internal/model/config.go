@@ -20,7 +20,7 @@ const NumOutputs = MaxZones + 1 // pump/master + 15 zones
 
 // ConfigVersion is the current config.json schema version. Older documents
 // are upgraded by the migration chain in the store package.
-const ConfigVersion = 2
+const ConfigVersion = 3
 
 type Settings struct {
 	WebPort    int        `json:"webPort"`
@@ -42,6 +42,9 @@ type Settings struct {
 	// LogRetentionMonths prunes zone log entries older than this many
 	// months (0 = keep forever).
 	LogRetentionMonths int `json:"logRetentionMonths"`
+	// ManualTimerMinutes limits manual zone runs started without an
+	// explicit duration (0 = unlimited, the original's behavior).
+	ManualTimerMinutes int `json:"manualTimerMinutes"`
 }
 
 func (s *Settings) Validate() error {
@@ -64,6 +67,9 @@ func (s *Settings) Validate() error {
 	}
 	if s.LogRetentionMonths < 0 || s.LogRetentionMonths > 120 {
 		return fmt.Errorf("logRetentionMonths must be 0-120 (0 = unlimited)")
+	}
+	if s.ManualTimerMinutes < 0 || s.ManualTimerMinutes > 24*60 {
+		return fmt.Errorf("manualTimerMinutes must be 0-1440 (0 = unlimited)")
 	}
 	switch s.WeatherProvider {
 	case "none":
@@ -91,10 +97,13 @@ func validLatLon(loc string) bool {
 }
 
 type Config struct {
-	Version   int        `json:"version"`
-	Settings  Settings   `json:"settings"`
-	Zones     []Zone     `json:"zones"`
-	Schedules []Schedule `json:"schedules"`
+	Version  int      `json:"version"`
+	Settings Settings `json:"settings"`
+	// RainDelayUntil suppresses schedule starts until this unix timestamp
+	// (0 = no rain delay). Manual and quick runs are unaffected.
+	RainDelayUntil int64      `json:"rainDelayUntil"`
+	Zones          []Zone     `json:"zones"`
+	Schedules      []Schedule `json:"schedules"`
 }
 
 func (c *Config) Validate() error {
@@ -165,6 +174,7 @@ func DefaultConfig() Config {
 			Clock24h:           true,
 			RunSchedules:       false,
 			LogRetentionMonths: 24,
+			ManualTimerMinutes: 30,
 		},
 	}
 	for i := 0; i < MaxZones; i++ {

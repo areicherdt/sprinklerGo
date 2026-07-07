@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"sprinklergo/internal/model"
 )
@@ -18,7 +19,12 @@ type ConfigStore struct {
 	mu   sync.RWMutex
 	path string
 	cfg  model.Config
+	rev  atomic.Int64
 }
+
+// Rev increases with every successful Update; used as a cheap change
+// fingerprint by the SSE endpoint.
+func (s *ConfigStore) Rev() int64 { return s.rev.Load() }
 
 // OpenConfig loads the configuration from path, creating it with factory
 // defaults on first boot (the ResetEEPROM equivalent).
@@ -78,6 +84,7 @@ func (s *ConfigStore) Update(fn func(*model.Config) error) error {
 		s.cfg = prev
 		return fmt.Errorf("save config: %w", err)
 	}
+	s.rev.Add(1)
 	return nil
 }
 

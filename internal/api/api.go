@@ -2,9 +2,11 @@
 package api
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -24,14 +26,18 @@ type Server struct {
 	cfg     *store.ConfigStore
 	logs    *store.LogStore
 	eng     *engine.Engine
+	weather *weather.Cache
 	static  fs.FS
 	// applyOutput rebuilds the hardware backend after output-relevant
 	// settings changed. May be nil (tests).
 	applyOutput func(model.Settings) error
 }
 
-func New(version string, cfg *store.ConfigStore, logs *store.LogStore, eng *engine.Engine, static fs.FS, applyOutput func(model.Settings) error) *Server {
-	return &Server{version: version, cfg: cfg, logs: logs, eng: eng, static: static, applyOutput: applyOutput}
+func New(version string, cfg *store.ConfigStore, logs *store.LogStore, eng *engine.Engine, wcache *weather.Cache, static fs.FS, applyOutput func(model.Settings) error) *Server {
+	if wcache == nil {
+		wcache = weather.NewCache(func() model.Settings { return cfg.Snapshot().Settings })
+	}
+	return &Server{version: version, cfg: cfg, logs: logs, eng: eng, weather: wcache, static: static, applyOutput: applyOutput}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -53,6 +59,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/weather/check", s.getWeatherCheck)
 	mux.HandleFunc("GET /api/logs", s.getLogs)
+	mux.HandleFunc("PUT /api/rain-delay", s.putRainDelay)
+	mux.HandleFunc("GET /api/events", s.getEvents)
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openapiSpec)
@@ -100,22 +108,44 @@ func pathID(w http.ResponseWriter, r *http.Request, max int) (int, bool) {
 
 // ---- state ----
 
-type stateDTO struct {
-	Version          string `json:"version"`
-	Time             int64  `json:"time"`
-	SchedulerEnabled bool   `json:"schedulerEnabled"`
-	Mode             string `json:"mode"`
-	ZoneID           int    `json:"zoneId"`
-	ZoneName         string `json:"zoneName,omitempty"`
-	ScheduleID       int    `json:"scheduleId"`
-	ScheduleName     string `json:"scheduleName,omitempty"`
-	RemainingSeconds int    `json:"remainingSeconds"`
-	PendingEvents    int    `json:"pendingEvents"`
-	EnabledZones     int    `json:"enabledZones"`
-	ScheduleCount    int    `json:"scheduleCount"`
+type plannedDTO struct {
+	ScheduleID   int    `json:"scheduleId"`
+	ScheduleName string `json:"scheduleName"`
+	At           int64  `json:"at"`
 }
 
-func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
+type zoneRunDTO struct {
+	ZoneID   int    `json:"zoneId"`
+	ZoneName string `json:"zoneName"`
+	Start    int64  `json:"start"`
+	End      int64  `json:"end"`
+	Done     bool   `json:"done"`
+	Active   bool   `json:"active"`
+}
+
+type stateDTO struct {
+	Version          string            `json:"version"`
+	Time             int64             `json:"time"`
+	SchedulerEnabled bool              `json:"schedulerEnabled"`
+	Mode             string            `json:"mode"`
+	ZoneID           int               `json:"zoneId"`
+	ZoneName         string            `json:"zoneName,omitempty"`
+	ScheduleID       int               `json:"scheduleId"`
+	ScheduleName     string            `json:"scheduleName,omitempty"`
+	RemainingSeconds int               `json:"remainingSeconds"`
+	PendingEvents    int               `json:"pendingEvents"`
+	EnabledZones     int               `json:"enabledZones"`
+	ScheduleCount    int               `json:"scheduleCount"`
+	RainDelayUntil   int64             `json:"rainDelayUntil"` // unix, 0 = keine
+	Clock24h         bool              `json:"clock24h"`
+	ZonesOn          []bool            `json:"zonesOn"`
+	PumpOn           bool              `json:"pumpOn"`
+	Planned          []plannedDTO      `json:"planned"`
+	Queue            []zoneRunDTO      `json:"queue"`
+	Weather          weather.CacheInfo `json:"weather"`
+}
+
+func (s *Server) stateDTO() stateDTO {
 	cfg := s.cfg.Snapshot()
 	st := s.eng.State()
 	dto := stateDTO{
@@ -129,17 +159,126 @@ func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 		PendingEvents:    st.PendingEvents,
 		EnabledZones:     cfg.EnabledZones(),
 		ScheduleCount:    len(cfg.Schedules),
+		RainDelayUntil:   cfg.RainDelayUntil,
+		Clock24h:         cfg.Settings.Clock24h,
+		ZonesOn:          st.ZoneOn,
+		PumpOn:           st.PumpOn,
+		Planned:          []plannedDTO{},
+		Queue:            []zoneRunDTO{},
+		Weather:          s.weather.Snapshot(),
 	}
-	if st.ZoneID >= 0 && st.ZoneID < len(cfg.Zones) {
-		dto.ZoneName = cfg.Zones[st.ZoneID].Name
+	if dto.RainDelayUntil > 0 && dto.RainDelayUntil <= dto.Time {
+		dto.RainDelayUntil = 0 // expired
 	}
-	switch {
-	case st.ScheduleID == engine.ScheduleQuick:
-		dto.ScheduleName = "Schnellstart"
-	case st.ScheduleID >= 0 && st.ScheduleID < len(cfg.Schedules):
-		dto.ScheduleName = cfg.Schedules[st.ScheduleID].Name
+	zoneName := func(id int) string {
+		if id >= 0 && id < len(cfg.Zones) {
+			return cfg.Zones[id].Name
+		}
+		return ""
 	}
-	writeJSON(w, http.StatusOK, dto)
+	schedName := func(id int) string {
+		if id == engine.ScheduleQuick {
+			return "Schnellstart"
+		}
+		if id >= 0 && id < len(cfg.Schedules) {
+			return cfg.Schedules[id].Name
+		}
+		return ""
+	}
+	dto.ZoneName = zoneName(st.ZoneID)
+	dto.ScheduleName = schedName(st.ScheduleID)
+	for _, p := range st.Planned {
+		dto.Planned = append(dto.Planned, plannedDTO{
+			ScheduleID: p.ScheduleID, ScheduleName: schedName(p.ScheduleID), At: p.At.Unix(),
+		})
+	}
+	for _, q := range st.Queue {
+		dto.Queue = append(dto.Queue, zoneRunDTO{
+			ZoneID: q.ZoneID, ZoneName: zoneName(q.ZoneID),
+			Start: q.Start.Unix(), End: q.End.Unix(), Done: q.Done, Active: q.Active,
+		})
+	}
+	return dto
+}
+
+func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.stateDTO())
+}
+
+// putRainDelay sets or clears the rain delay ({"hours": 0} clears it).
+func (s *Server) putRainDelay(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Hours int `json:"hours"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.Hours < 0 || body.Hours > 14*24 {
+		writeErr(w, http.StatusBadRequest, "hours must be 0-336")
+		return
+	}
+	until := int64(0)
+	if body.Hours > 0 {
+		until = time.Now().Add(time.Duration(body.Hours) * time.Hour).Unix()
+	}
+	err := s.cfg.Update(func(c *model.Config) error {
+		c.RainDelayUntil = until
+		return nil
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "rainDelayUntil": until})
+}
+
+// getEvents streams the state as Server-Sent Events: a push on every
+// observable change (engine or config) and at least every 5 seconds while
+// clients keep countdowns ticking.
+func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	send := func() bool {
+		data, err := json.Marshal(s.stateDTO())
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: state\ndata: %s\n\n", data); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	fingerprint := func() [2]int64 { return [2]int64{s.eng.Rev(), s.cfg.Rev()} }
+	last := fingerprint()
+	lastPush := time.Now()
+	if !send() {
+		return
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			fp := fingerprint()
+			if fp != last || time.Since(lastPush) >= 5*time.Second {
+				last = fp
+				lastPush = time.Now()
+				if !send() {
+					return
+				}
+			}
+		}
+	}
 }
 
 // ---- zones ----
@@ -182,7 +321,13 @@ func (s *Server) putZone(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.eng.Reload()
+	// Soft reload keeps a running cycle alive — unless this very zone is
+	// currently watering and was just disabled.
+	if st := s.eng.State(); st.ZoneID == id && !body.Enabled {
+		s.eng.StopAll()
+	} else {
+		s.eng.Reload()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -193,11 +338,18 @@ func (s *Server) postManual(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		On bool `json:"on"`
+		// Minutes limits the run; omitted = the configured default,
+		// 0 = unlimited (original behavior).
+		Minutes *int `json:"minutes"`
 	}
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if err := s.eng.SetManualZone(id, body.On); err != nil {
+	minutes := s.cfg.Snapshot().Settings.ManualTimerMinutes
+	if body.Minutes != nil {
+		minutes = *body.Minutes
+	}
+	if err := s.eng.SetManualZone(id, body.On, minutes); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -344,7 +496,12 @@ func (s *Server) putSystemRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.eng.Reload()
+	if body.Enabled {
+		s.eng.Reload()
+	} else {
+		// Switching the scheduler off stops the water, like the original.
+		s.eng.StopAll()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -369,6 +526,14 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.eng.Reload()
+
+	if prev.WeatherProvider != body.WeatherProvider || prev.Location != body.Location {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			s.weather.Refresh(ctx)
+		}()
+	}
 
 	outputChanged := prev.OutputType != body.OutputType ||
 		prev.ScriptPath != body.ScriptPath ||
@@ -402,14 +567,15 @@ func equalInts(a, b []int) bool {
 // ---- weather ----
 
 func (s *Server) getWeatherCheck(w http.ResponseWriter, r *http.Request) {
-	settings := s.cfg.Snapshot().Settings
-	provider := weather.ForSettings(settings)
-	vals := provider.GetVals(r.Context(), settings)
+	// The diagnostics fetch doubles as a cache refresh, so the engine and
+	// the dashboard immediately see the same values.
+	info := s.weather.Refresh(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"provider":   provider.Name(),
-		"noProvider": provider.Name() == "none",
-		"vals":       vals,
-		"scale":      weather.Scale(vals),
+		"provider":   info.Provider,
+		"noProvider": info.Provider == "none",
+		"vals":       info.Vals,
+		"scale":      info.Scale,
+		"fetchedAt":  info.FetchedAt,
 	})
 }
 

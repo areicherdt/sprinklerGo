@@ -59,7 +59,7 @@
     },
     "/api/zones/{id}/manual": {
       "post": {
-        "summary": "Zone manuell an/aus (an = unbegrenzt bis Stopp)",
+        "summary": "Zone manuell an/aus",
         "operationId": "manualZone",
         "parameters": [{ "$ref": "#/components/parameters/id" }],
         "requestBody": {
@@ -69,7 +69,13 @@
               "schema": {
                 "type": "object",
                 "required": ["on"],
-                "properties": { "on": { "type": "boolean" } }
+                "properties": {
+                  "on": { "type": "boolean" },
+                  "minutes": {
+                    "type": "integer", "minimum": 0, "maximum": 1440,
+                    "description": "Laufzeitbegrenzung; weggelassen = Einstellung manualTimerMinutes, 0 = unbegrenzt"
+                  }
+                }
               }
             }
           }
@@ -180,6 +186,55 @@
         "responses": {
           "200": { "$ref": "#/components/responses/Ok" },
           "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/rain-delay": {
+      "put": {
+        "summary": "Regenpause setzen oder aufheben",
+        "description": "Unterdrückt Programmstarts für die angegebene Dauer; manuelle Läufe und Schnellstarts sind nicht betroffen. hours=0 hebt die Pause auf. Überlebt einen Neustart.",
+        "operationId": "setRainDelay",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["hours"],
+                "properties": { "hours": { "type": "integer", "minimum": 0, "maximum": 336 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Gesetzt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "rainDelayUntil": { "type": "integer", "description": "Unix-Sekunden, 0 = keine Pause" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Live-Statusstrom (Server-Sent Events)",
+        "description": "Sendet 'event: state' mit dem State-Objekt als data bei jeder Änderung sowie mindestens alle 5 Sekunden.",
+        "operationId": "streamEvents",
+        "responses": {
+          "200": {
+            "description": "SSE-Strom",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          }
         }
       }
     },
@@ -338,7 +393,48 @@
           "remainingSeconds": { "type": "integer", "description": "-1 = unbegrenzt (manuell)" },
           "pendingEvents": { "type": "integer" },
           "enabledZones": { "type": "integer" },
-          "scheduleCount": { "type": "integer" }
+          "scheduleCount": { "type": "integer" },
+          "rainDelayUntil": { "type": "integer", "description": "Unix-Sekunden, 0 = keine Regenpause" },
+          "clock24h": { "type": "boolean" },
+          "zonesOn": { "type": "array", "items": { "type": "boolean" } },
+          "pumpOn": { "type": "boolean" },
+          "planned": {
+            "type": "array",
+            "description": "Heute noch anstehende Programmstarts",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scheduleId": { "type": "integer" },
+                "scheduleName": { "type": "string" },
+                "at": { "type": "integer", "description": "Unix-Sekunden" }
+              }
+            }
+          },
+          "queue": {
+            "type": "array",
+            "description": "Zonenfolge des aktiven Programmlaufs",
+            "items": {
+              "type": "object",
+              "properties": {
+                "zoneId": { "type": "integer" },
+                "zoneName": { "type": "string" },
+                "start": { "type": "integer" },
+                "end": { "type": "integer" },
+                "done": { "type": "boolean" },
+                "active": { "type": "boolean" }
+              }
+            }
+          },
+          "weather": {
+            "type": "object",
+            "description": "Zwischengespeicherte Wetterdaten (stündlich aktualisiert)",
+            "properties": {
+              "provider": { "type": "string" },
+              "scale": { "type": "integer" },
+              "valid": { "type": "boolean" },
+              "fetchedAt": { "type": "integer", "description": "Unix-Sekunden, 0 = nie" }
+            }
+          }
         }
       },
       "Zone": {
@@ -422,7 +518,8 @@
           "location": { "type": "string", "description": "\"Breitengrad,Längengrad\" bei openmeteo" },
           "clock24h": { "type": "boolean" },
           "runSchedules": { "type": "boolean" },
-          "logRetentionMonths": { "type": "integer", "minimum": 0, "maximum": 120, "description": "0 = unbegrenzt" }
+          "logRetentionMonths": { "type": "integer", "minimum": 0, "maximum": 120, "description": "0 = unbegrenzt" },
+          "manualTimerMinutes": { "type": "integer", "minimum": 0, "maximum": 1440, "description": "Default-Timer für manuelle Läufe; 0 = unbegrenzt" }
         }
       },
       "WeatherCheck": {

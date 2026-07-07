@@ -14,6 +14,7 @@ type migration func(cfg map[string]any) error
 // (asserted in tests).
 var migrations = []migration{
 	migrateV1AddLogRetention,
+	migrateV2AddManualTimer,
 }
 
 // v1 → v2: introduce settings.logRetentionMonths (default 24; 0 = unlimited).
@@ -24,6 +25,18 @@ func migrateV1AddLogRetention(cfg map[string]any) error {
 	}
 	if _, exists := settings["logRetentionMonths"]; !exists {
 		settings["logRetentionMonths"] = 24
+	}
+	return nil
+}
+
+// v2 → v3: introduce settings.manualTimerMinutes (default 30; 0 = unlimited).
+func migrateV2AddManualTimer(cfg map[string]any) error {
+	settings, ok := cfg["settings"].(map[string]any)
+	if !ok {
+		return errors.New("config has no settings object")
+	}
+	if _, exists := settings["manualTimerMinutes"]; !exists {
+		settings["manualTimerMinutes"] = 30
 	}
 	return nil
 }

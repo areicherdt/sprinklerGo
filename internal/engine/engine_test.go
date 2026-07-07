@@ -79,15 +79,17 @@ type rig struct {
 	clk *clock
 	out *recOut
 	log *memLogger
+	src *fakeSource
 }
 
 func newRig(cfg model.Config, start time.Time, weather func() int) *rig {
 	clk := &clock{t: start}
 	out := &recOut{clk: clk}
 	log := &memLogger{}
-	eng := New(&fakeSource{cfg: cfg}, out, log, weather, clk.Now)
+	src := &fakeSource{cfg: cfg}
+	eng := New(src, out, log, weather, clk.Now)
 	eng.Tick() // initialization tick
-	return &rig{eng: eng, clk: clk, out: out, log: log}
+	return &rig{eng: eng, clk: clk, out: out, log: log, src: src}
 }
 
 // stepTo advances the clock in one-minute ticks up to and including end.
@@ -225,7 +227,7 @@ func TestManualZone(t *testing.T) {
 	cfg.Zones[1].Pump = true
 	r := newRig(cfg, at(10, 0), nil)
 
-	if err := r.eng.SetManualZone(1, true); err != nil {
+	if err := r.eng.SetManualZone(1, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	st := r.eng.State()
@@ -234,7 +236,7 @@ func TestManualZone(t *testing.T) {
 	}
 
 	r.clk.t = r.clk.t.Add(7 * time.Minute)
-	if err := r.eng.SetManualZone(1, false); err != nil {
+	if err := r.eng.SetManualZone(1, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	if st := r.eng.State(); st.Mode != "idle" || st.ZoneOn[1] {
@@ -248,8 +250,30 @@ func TestManualZone(t *testing.T) {
 		t.Errorf("manual log row wrong: %+v", row)
 	}
 
-	if err := r.eng.SetManualZone(99, true); err == nil {
+	if err := r.eng.SetManualZone(99, true, 0); err == nil {
 		t.Error("want error for out-of-range zone")
+	}
+}
+
+func TestManualTimerExpires(t *testing.T) {
+	r := newRig(testConfig(), at(10, 0), nil)
+	if err := r.eng.SetManualZone(0, true, 5); err != nil {
+		t.Fatal(err)
+	}
+	st := r.eng.State()
+	if st.Mode != "manual" || st.RemainingSeconds != 5*60 {
+		t.Fatalf("manual timer state wrong: %+v", st)
+	}
+	r.stepTo(at(10, 7))
+	if st := r.eng.State(); st.Mode != "idle" || st.ZoneOn[0] {
+		t.Errorf("manual timer must switch the zone off: %+v", st)
+	}
+	if len(r.log.rows) != 1 || r.log.rows[0].seconds != 5*60 || r.log.rows[0].schedID != ScheduleManual {
+		t.Errorf("timed manual run log wrong: %+v", r.log.rows)
+	}
+
+	if err := r.eng.SetManualZone(0, true, 99999); err == nil {
+		t.Error("want error for out-of-range timer")
 	}
 }
 
@@ -360,7 +384,7 @@ func TestMidnightReloadFiresMidnightSchedule(t *testing.T) {
 	})
 }
 
-func TestReloadStopsRunningSchedule(t *testing.T) {
+func TestSoftReloadKeepsRunningSchedule(t *testing.T) {
 	cfg := testConfig()
 	cfg.Schedules = []model.Schedule{everyDaySchedule("S", 6*60, 30, 0, 0)}
 
@@ -369,14 +393,72 @@ func TestReloadStopsRunningSchedule(t *testing.T) {
 	if st := r.eng.State(); st.Mode != "schedule" {
 		t.Fatalf("expected running schedule, got %+v", st)
 	}
-	r.eng.Reload() // e.g. after a config change
+	r.eng.Reload() // e.g. after renaming a zone
 	st := r.eng.State()
-	if st.Mode != "idle" || st.ZoneOn[0] {
-		t.Errorf("reload must stop the run: %+v", st)
+	if st.Mode != "schedule" || !st.ZoneOn[0] {
+		t.Errorf("soft reload must keep the run alive: %+v", st)
 	}
-	// The interrupted zone must still be logged with its partial duration.
+	if len(r.log.rows) != 0 {
+		t.Errorf("soft reload must not end the zone run: %+v", r.log.rows)
+	}
+
+	// An explicit stop ends the run and logs the partial duration.
+	r.eng.StopAll()
+	st = r.eng.State()
+	if st.Mode != "idle" || st.ZoneOn[0] {
+		t.Errorf("stop must end the run: %+v", st)
+	}
 	if len(r.log.rows) != 1 || r.log.rows[0].seconds != 5*60 {
 		t.Errorf("partial run not logged: %+v", r.log.rows)
+	}
+}
+
+func TestRainDelaySuppressesSchedulesOnly(t *testing.T) {
+	cfg := testConfig()
+	cfg.Schedules = []model.Schedule{everyDaySchedule("S", 6*60, 10, 0, 0)}
+	cfg.RainDelayUntil = at(12, 0).Unix()
+
+	r := newRig(cfg, at(5, 0), nil)
+	r.stepTo(at(6, 30))
+	expectTransitions(t, r.out.trans, []transition{{at(5, 0), 0}})
+	if st := r.eng.State(); st.PendingEvents != 0 {
+		t.Errorf("suppressed start must be consumed, got %d pending", st.PendingEvents)
+	}
+
+	// Manual watering is unaffected by the rain delay.
+	if err := r.eng.SetManualZone(0, true, 0); err != nil {
+		t.Fatal(err)
+	}
+	if st := r.eng.State(); st.Mode != "manual" || !st.ZoneOn[0] {
+		t.Errorf("manual run must work during rain delay: %+v", st)
+	}
+	r.eng.SetManualZone(0, false, 0)
+
+	// After the delay expires, later starts run normally.
+	r.src.cfg.Schedules[0].StartTimes = []int{13 * 60}
+	r.eng.Reload()
+	r.stepTo(at(13, 15))
+	last := r.out.trans[len(r.out.trans)-1]
+	if len(r.log.rows) < 2 || last.state != 0 {
+		t.Errorf("schedule after rain delay did not run: trans=%+v", r.out.trans)
+	}
+}
+
+func TestRunCrossesMidnight(t *testing.T) {
+	cfg := testConfig()
+	cfg.Schedules = []model.Schedule{everyDaySchedule("Spät", 23*60+58, 5, 0, 0)}
+
+	r := newRig(cfg, at(23, 57), nil)
+	r.stepTo(at(23, 59).Add(8 * time.Minute)) // bis 00:07 des Folgetags
+
+	next := time.Date(2026, time.July, 8, 0, 3, 0, 0, time.Local)
+	expectTransitions(t, r.out.trans, []transition{
+		{at(23, 57), 0},
+		{at(23, 58), 1 << 1},
+		{next, 0}, // runs through midnight, off at 00:03
+	})
+	if len(r.log.rows) != 1 || r.log.rows[0].seconds != 5*60 {
+		t.Errorf("midnight-crossing run log wrong: %+v", r.log.rows)
 	}
 }
 

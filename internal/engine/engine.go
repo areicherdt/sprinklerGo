@@ -1,8 +1,11 @@
-// Package engine ports the scheduling core of sprinklers_pi (core.cpp).
-// It keeps the original's semantics: a per-day event list rebuilt at midnight
-// and on every configuration change, strictly sequential zone runs, duration
-// scaling by seasonal and weather percentages, and per-minute deferral when a
-// schedule becomes due while another one is still running.
+// Package engine ports the scheduling core of sprinklers_pi (core.cpp) and
+// modernizes its workflow: events carry absolute times (so runs may cross
+// midnight), configuration changes reload softly (a running cycle finishes
+// with its old values), rain delay suppresses schedule starts, and manual
+// runs can carry a timer. The original's semantics are otherwise kept:
+// strictly sequential zone runs, duration scaling by seasonal and weather
+// percentages, and per-minute deferral when a schedule becomes due while
+// another one is still running.
 package engine
 
 import (
@@ -45,11 +48,12 @@ const (
 )
 
 type event struct {
-	timeMin int // minutes since midnight; -1 = consumed
-	kind    eventKind
-	zone    int // 1-based valve number (evZoneOn)
-	endMin  int // scheduled end, minutes since midnight (evZoneOn)
-	sched   int // schedule index (evStartSched)
+	at    time.Time
+	kind  eventKind
+	zone  int       // 1-based valve number (evZoneOn)
+	endAt time.Time // scheduled end (evZoneOn)
+	sched int       // schedule index (evStartSched)
+	done  bool
 }
 
 type adjustments struct {
@@ -60,9 +64,9 @@ type adjustments struct {
 type runState struct {
 	schedule  bool
 	manual    bool
-	schedID   int // schedule index, ScheduleQuick, or -1
-	zone      int // 1-based valve number, -1 = none
-	endMin    int
+	schedID   int       // schedule index, ScheduleQuick, or -1
+	zone      int       // 1-based valve number, -1 = none
+	endAt     time.Time // zero = unlimited (manual without timer)
 	eventTime time.Time // start of the current zone run (for logging)
 	adj       adjustments
 }
@@ -75,7 +79,8 @@ type Engine struct {
 
 	mu          sync.Mutex
 	out         Output
-	events      []event
+	pending     []event // today's schedule starts (evStartSched)
+	running     []event // expansion of the active run (evZoneOn/evAllOff)
 	run         runState
 	outState    uint16
 	prevOut     uint16
@@ -83,6 +88,7 @@ type Engine struct {
 	initialized bool
 	lastDay     int
 	quick       []int // quick-run durations, minutes per zone
+	rev         int64 // bumped on every observable change (SSE fingerprint)
 }
 
 func New(cfg ConfigSource, out Output, logger ZoneLogger, weatherScale func() int, now func() time.Time) *Engine {
@@ -118,8 +124,9 @@ func (e *Engine) Start(ctx context.Context) {
 	}()
 }
 
-// Tick advances the engine to the current clock time: it reloads the event
-// list on day changes, fires due events and latches output changes.
+// Tick advances the engine to the current clock time: it rebuilds the
+// pending starts on day changes (keeping a run that crosses midnight alive),
+// fires due events and latches output changes.
 func (e *Engine) Tick() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -131,42 +138,60 @@ func (e *Engine) Tick() {
 		// restart at noon does not re-fire the morning schedules.
 		e.initialized = true
 		e.lastDay = day
-		e.reloadLocked(false, now, &cfg)
+		e.rebuildPendingLocked(false, now, &cfg)
 	} else if day != e.lastDay {
 		e.lastDay = day
-		e.reloadLocked(true, now, &cfg)
+		e.rebuildPendingLocked(true, now, &cfg)
 	}
-	e.processEventsLocked(now, &cfg)
+	e.processLocked(now, &cfg)
 	e.latchLocked()
 }
 
-// Reload rebuilds the day's event list (future start times only). Any
-// running schedule or manual watering is stopped, matching the original's
-// behavior after every configuration change.
+// Reload is the soft reload after configuration changes: only the pending
+// schedule starts are rebuilt. A running cycle (scheduled or manual) keeps
+// going with the values it started with.
 func (e *Engine) Reload() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	cfg := e.cfg.Snapshot()
-	e.reloadLocked(false, e.now(), &cfg)
+	e.rebuildPendingLocked(false, e.now(), &cfg)
 	e.latchLocked()
 }
 
-// StopAll turns everything off and rebuilds the pending events.
-func (e *Engine) StopAll() { e.Reload() }
+// StopAll turns everything off, discards the active run and rebuilds the
+// pending starts.
+func (e *Engine) StopAll() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := e.now()
+	cfg := e.cfg.Snapshot()
+	e.running = e.running[:0]
+	e.clearRunLocked(now)
+	e.outState = 0
+	e.rebuildPendingLocked(false, now, &cfg)
+	e.latchLocked()
+}
 
 // SetManualZone turns a single zone on (with its pump if configured) or
-// turns all zones off. zoneID is 0-based.
-func (e *Engine) SetManualZone(zoneID int, on bool) error {
+// turns all zones off. zoneID is 0-based. minutes limits the run
+// (0 = unlimited, like the original).
+func (e *Engine) SetManualZone(zoneID int, on bool, minutes int) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	cfg := e.cfg.Snapshot()
 	if zoneID < 0 || zoneID >= len(cfg.Zones) {
 		return fmt.Errorf("zone %d out of range", zoneID)
 	}
+	if minutes < 0 || minutes > 24*60 {
+		return fmt.Errorf("manual timer out of range 0-%d minutes", 24*60)
+	}
 	now := e.now()
 	if on {
 		e.turnOnZoneLocked(zoneID+1, &cfg)
 		e.setManualLocked(now, true, zoneID+1)
+		if minutes > 0 {
+			e.run.endAt = now.Add(time.Duration(minutes) * time.Minute)
+		}
 	} else {
 		e.outState = 0
 		e.setManualLocked(now, false, -1)
@@ -185,11 +210,13 @@ func (e *Engine) QuickRunSchedule(idx int) error {
 		return fmt.Errorf("schedule %d out of range", idx)
 	}
 	now := e.now()
-	e.reloadLocked(false, now, &cfg)
+	e.clearRunLocked(now)
+	e.outState = 0
+	e.rebuildPendingLocked(false, now, &cfg)
 	e.startScheduleLocked(idx, false, now, &cfg)
 	// The original fires ProcessEvents in the same loop pass, so the first
 	// zone turns on immediately rather than on the next tick.
-	e.processEventsLocked(now, &cfg)
+	e.processLocked(now, &cfg)
 	e.latchLocked()
 	return nil
 }
@@ -213,9 +240,11 @@ func (e *Engine) QuickRunDurations(durations []int) error {
 		e.quick = append(e.quick, 0)
 	}
 	now := e.now()
-	e.reloadLocked(false, now, &cfg)
+	e.clearRunLocked(now)
+	e.outState = 0
+	e.rebuildPendingLocked(false, now, &cfg)
 	e.startScheduleLocked(0, true, now, &cfg)
-	e.processEventsLocked(now, &cfg)
+	e.processLocked(now, &cfg)
 	e.latchLocked()
 	return nil
 }
@@ -233,10 +262,34 @@ func (e *Engine) SwapOutput(out Output) {
 func (e *Engine) Shutdown() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.events = nil
+	e.pending = nil
+	e.running = nil
 	e.clearRunLocked(e.now())
 	e.outState = 0
 	e.latchLocked()
+}
+
+// Rev returns a counter that increases with every observable change; used
+// by the SSE endpoint as a cheap change fingerprint.
+func (e *Engine) Rev() int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.rev
+}
+
+// PlannedStart is an upcoming schedule start for the current day.
+type PlannedStart struct {
+	ScheduleID int
+	At         time.Time
+}
+
+// ZoneRun is one zone slot in the active run's queue.
+type ZoneRun struct {
+	ZoneID int
+	Start  time.Time
+	End    time.Time
+	Done   bool
+	Active bool
 }
 
 // State is a point-in-time snapshot for the API layer.
@@ -248,6 +301,8 @@ type State struct {
 	PendingEvents    int
 	ZoneOn           []bool
 	PumpOn           bool
+	Planned          []PlannedStart
+	Queue            []ZoneRun
 }
 
 func (e *Engine) State() State {
@@ -261,15 +316,37 @@ func (e *Engine) State() State {
 		st.Mode = "manual"
 		st.ZoneID = e.run.zone - 1
 		st.RemainingSeconds = -1
+		if !e.run.endAt.IsZero() {
+			st.RemainingSeconds = max(0, int(e.run.endAt.Sub(now).Seconds()))
+		}
 	case e.run.schedule && e.run.zone >= 1:
 		st.Mode = "schedule"
 		st.ZoneID = e.run.zone - 1
 		st.ScheduleID = e.run.schedID
-		st.RemainingSeconds = max(0, e.run.endMin*60-model.SecondsOfDay(now))
+		st.RemainingSeconds = max(0, int(e.run.endAt.Sub(now).Seconds()))
 	}
-	for _, ev := range e.events {
-		if ev.timeMin != -1 {
+	for _, ev := range e.pending {
+		if !ev.done {
 			st.PendingEvents++
+			st.Planned = append(st.Planned, PlannedStart{ScheduleID: ev.sched, At: ev.at})
+		}
+	}
+	if e.run.schedule {
+		for _, ev := range e.running {
+			if ev.kind != evZoneOn {
+				if !ev.done {
+					st.PendingEvents++
+				}
+				continue
+			}
+			st.Queue = append(st.Queue, ZoneRun{
+				ZoneID: ev.zone - 1, Start: ev.at, End: ev.endAt,
+				Done:   ev.done && ev.zone != e.run.zone,
+				Active: ev.done && ev.zone == e.run.zone,
+			})
+			if !ev.done {
+				st.PendingEvents++
+			}
 		}
 	}
 	st.ZoneOn = make([]bool, len(cfg.Zones))
@@ -282,27 +359,31 @@ func (e *Engine) State() State {
 
 // ---- internals (callers hold e.mu) ----
 
-// reloadLocked ports ReloadEvents: stop everything, then queue one
-// evStartSched per due schedule start time. With all=false, start times at or
-// before the current minute are skipped.
-func (e *Engine) reloadLocked(all bool, now time.Time, cfg *model.Config) {
-	e.events = e.events[:0]
-	e.clearRunLocked(now)
-	e.outState = 0
+func (e *Engine) bumpLocked() { e.rev++ }
+
+// rebuildPendingLocked ports ReloadEvents' start-list construction: one
+// evStartSched per due schedule start time of the current day. With
+// includePast=false, start times at or before now are skipped. The active
+// run is left untouched (soft reload).
+func (e *Engine) rebuildPendingLocked(includePast bool, now time.Time, cfg *model.Config) {
+	e.pending = e.pending[:0]
+	e.bumpLocked()
 	if !cfg.Settings.RunSchedules {
 		return
 	}
-	nowMin := model.MinutesOfDay(now)
+	y, m, d := now.Date()
+	midnight := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
 	for i := range cfg.Schedules {
 		s := &cfg.Schedules[i]
 		if !s.RunsOn(now) {
 			continue
 		}
 		for _, start := range s.StartTimes {
-			if !all && start <= nowMin {
+			at := midnight.Add(time.Duration(start) * time.Minute)
+			if !includePast && !at.After(now) {
 				continue
 			}
-			e.events = append(e.events, event{timeMin: start, kind: evStartSched, sched: i})
+			e.pending = append(e.pending, event{at: at, kind: evStartSched, sched: i})
 		}
 	}
 }
@@ -329,16 +410,16 @@ func (e *Engine) startScheduleLocked(idx int, quick bool, now time.Time, cfg *mo
 		}
 	}
 
-	start := model.MinutesOfDay(now)
+	e.running = e.running[:0]
+	at := now
 	for k := 0; k < len(cfg.Zones) && k < len(durations); k++ {
 		if cfg.Zones[k].Enabled && durations[k] > 0 {
-			e.events = append(e.events, event{
-				timeMin: start, kind: evZoneOn, zone: k + 1, endMin: start + durations[k],
-			})
-			start += durations[k]
+			end := at.Add(time.Duration(durations[k]) * time.Minute)
+			e.running = append(e.running, event{at: at, kind: evZoneOn, zone: k + 1, endAt: end})
+			at = end
 		}
 	}
-	e.events = append(e.events, event{timeMin: start, kind: evAllOff})
+	e.running = append(e.running, event{at: at, kind: evAllOff})
 
 	schedID := idx
 	if quick {
@@ -346,37 +427,54 @@ func (e *Engine) startScheduleLocked(idx int, quick bool, now time.Time, cfg *mo
 	}
 	e.logRunLocked(now)
 	e.run = runState{schedule: true, schedID: schedID, zone: -1, eventTime: now, adj: adj}
+	e.bumpLocked()
 }
 
-// processEventsLocked ports ProcessEvents. Events appended while iterating
-// (schedule expansion) are visited in the same pass, like the original.
-func (e *Engine) processEventsLocked(now time.Time, cfg *model.Config) {
-	nowMin := model.MinutesOfDay(now)
-	for i := 0; i < len(e.events); i++ {
-		if e.events[i].timeMin == -1 || nowMin < e.events[i].timeMin {
+// processLocked ports ProcessEvents. Pending starts are handled first so a
+// freshly expanded schedule fires its first zone in the same pass, like the
+// original's single event array.
+func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
+	rainDelayed := cfg.RainDelayUntil > 0 && now.Unix() < cfg.RainDelayUntil
+	for i := 0; i < len(e.pending); i++ {
+		if e.pending[i].done || now.Before(e.pending[i].at) {
 			continue
 		}
-		switch e.events[i].kind {
+		if rainDelayed {
+			e.pending[i].done = true
+			e.bumpLocked()
+			slog.Info("schedule start suppressed by rain delay", "schedule", e.pending[i].sched)
+			continue
+		}
+		if e.run.schedule {
+			// Another schedule is running: push this one off a minute.
+			e.pending[i].at = e.pending[i].at.Add(time.Minute)
+			continue
+		}
+		sched := e.pending[i].sched
+		e.pending[i].done = true
+		if sched >= 0 && sched < len(cfg.Schedules) {
+			e.startScheduleLocked(sched, false, now, cfg)
+		}
+	}
+	for i := 0; i < len(e.running); i++ {
+		if e.running[i].done || now.Before(e.running[i].at) {
+			continue
+		}
+		switch e.running[i].kind {
 		case evZoneOn:
-			e.turnOnZoneLocked(e.events[i].zone, cfg)
-			e.continueScheduleLocked(now, e.events[i].zone, e.events[i].endMin)
-			e.events[i].timeMin = -1
+			e.turnOnZoneLocked(e.running[i].zone, cfg)
+			e.continueScheduleLocked(now, e.running[i].zone, e.running[i].endAt)
+			e.running[i].done = true
 		case evAllOff:
 			e.outState = 0
 			e.clearRunLocked(now)
-			e.events[i].timeMin = -1
-		case evStartSched:
-			if e.run.schedule {
-				// Another schedule is running: push this one off a minute.
-				e.events[i].timeMin++
-			} else {
-				sched := e.events[i].sched
-				e.events[i].timeMin = -1
-				if sched >= 0 && sched < len(cfg.Schedules) {
-					e.startScheduleLocked(sched, false, now, cfg)
-				}
-			}
+			e.running[i].done = true
 		}
+	}
+	// Manual timer expiry.
+	if e.run.manual && !e.run.endAt.IsZero() && !now.Before(e.run.endAt) {
+		e.outState = 0
+		e.setManualLocked(now, false, -1)
 	}
 }
 
@@ -404,6 +502,7 @@ func (e *Engine) latchLocked() {
 	}
 	e.prevOut = e.outState
 	e.havePrev = true
+	e.bumpLocked()
 }
 
 // logRunLocked ports LogSchedule: whenever the run state transitions, the
@@ -425,17 +524,20 @@ func (e *Engine) logRunLocked(now time.Time) {
 func (e *Engine) clearRunLocked(now time.Time) {
 	e.logRunLocked(now)
 	e.run = runState{schedID: -1, zone: -1, eventTime: now, adj: adjustments{-1, -1}}
+	e.bumpLocked()
 }
 
-func (e *Engine) continueScheduleLocked(now time.Time, zone, endMin int) {
+func (e *Engine) continueScheduleLocked(now time.Time, zone int, endAt time.Time) {
 	e.logRunLocked(now)
 	e.run = runState{
-		schedule: true, schedID: e.run.schedID, zone: zone, endMin: endMin,
+		schedule: true, schedID: e.run.schedID, zone: zone, endAt: endAt,
 		eventTime: now, adj: e.run.adj,
 	}
+	e.bumpLocked()
 }
 
 func (e *Engine) setManualLocked(now time.Time, on bool, zone int) {
 	e.logRunLocked(now)
 	e.run = runState{manual: on, schedID: -1, zone: zone, eventTime: now, adj: adjustments{-1, -1}}
+	e.bumpLocked()
 }

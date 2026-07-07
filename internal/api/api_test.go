@@ -1,11 +1,14 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,7 +36,7 @@ func newEnv(t *testing.T) *testEnv {
 	}
 	t.Cleanup(func() { logs.Close() })
 	eng := engine.New(cfg, hardware.NewMock(), logs, nil, nil)
-	srv := New("test", cfg, logs, eng, nil, nil)
+	srv := New("test", cfg, logs, eng, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return &testEnv{ts: ts, cfg: cfg, logs: logs}
@@ -287,6 +290,90 @@ func TestLogs(t *testing.T) {
 	}
 	if code, _ = e.call(t, "GET", "/api/logs?start=abc", nil); code != 400 {
 		t.Errorf("bad start: want 400, got %d", code)
+	}
+}
+
+func TestRainDelay(t *testing.T) {
+	e := newEnv(t)
+	code, res := e.call(t, "PUT", "/api/rain-delay", map[string]any{"hours": 24})
+	if code != 200 || res["rainDelayUntil"].(float64) <= 0 {
+		t.Fatalf("set rain delay: %d %+v", code, res)
+	}
+	_, st := e.call(t, "GET", "/api/state", nil)
+	if st["rainDelayUntil"].(float64) <= 0 {
+		t.Errorf("state must expose the rain delay: %+v", st["rainDelayUntil"])
+	}
+
+	if code, _ = e.call(t, "PUT", "/api/rain-delay", map[string]any{"hours": 0}); code != 200 {
+		t.Fatalf("clear rain delay: %d", code)
+	}
+	_, st = e.call(t, "GET", "/api/state", nil)
+	if st["rainDelayUntil"].(float64) != 0 {
+		t.Errorf("rain delay not cleared: %+v", st["rainDelayUntil"])
+	}
+
+	if code, _ = e.call(t, "PUT", "/api/rain-delay", map[string]any{"hours": 999}); code != 400 {
+		t.Errorf("out-of-range hours: want 400, got %d", code)
+	}
+}
+
+func TestManualTimerDefaults(t *testing.T) {
+	e := newEnv(t)
+	// Default from settings (30 min).
+	e.call(t, "POST", "/api/zones/0/manual", map[string]any{"on": true})
+	_, st := e.call(t, "GET", "/api/state", nil)
+	if rem := st["remainingSeconds"].(float64); rem <= 5*60 || rem > 30*60 {
+		t.Errorf("default manual timer: remaining %v, want ~1800", rem)
+	}
+	// Explicit override.
+	e.call(t, "POST", "/api/zones/0/manual", map[string]any{"on": true, "minutes": 5})
+	_, st = e.call(t, "GET", "/api/state", nil)
+	if rem := st["remainingSeconds"].(float64); rem <= 0 || rem > 5*60 {
+		t.Errorf("manual override: remaining %v, want <=300", rem)
+	}
+	// Explicit unlimited.
+	e.call(t, "POST", "/api/zones/0/manual", map[string]any{"on": true, "minutes": 0})
+	_, st = e.call(t, "GET", "/api/state", nil)
+	if st["remainingSeconds"].(float64) != -1 {
+		t.Errorf("unlimited manual: remaining %v, want -1", st["remainingSeconds"])
+	}
+	e.call(t, "POST", "/api/zones/0/manual", map[string]any{"on": false})
+}
+
+func TestSSEStreamsState(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", e.ts.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content type %q", ct)
+	}
+	reader := bufio.NewReader(resp.Body)
+	eventLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(eventLine, "event: state") {
+		t.Fatalf("first line %q", eventLine)
+	}
+	dataLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(strings.TrimSpace(dataLine), "data: ")), &st); err != nil {
+		t.Fatalf("data line is not JSON: %v (%q)", err, dataLine)
+	}
+	if st["mode"] != "idle" || st["version"] != "test" {
+		t.Errorf("initial SSE state wrong: %+v", st)
 	}
 }
 

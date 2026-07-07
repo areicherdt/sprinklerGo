@@ -42,6 +42,9 @@ func TestMigrateRawV1ToCurrent(t *testing.T) {
 	if cfg.Settings.LogRetentionMonths != 24 {
 		t.Errorf("logRetentionMonths = %d, want default 24", cfg.Settings.LogRetentionMonths)
 	}
+	if cfg.Settings.ManualTimerMinutes != 30 {
+		t.Errorf("manualTimerMinutes = %d, want default 30", cfg.Settings.ManualTimerMinutes)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("migrated config invalid: %v", err)
 	}
@@ -116,13 +119,15 @@ func TestOpenConfigMigratesV1File(t *testing.T) {
 	}
 }
 
-// stripField serializes settings without logRetentionMonths to fake a v1 file.
+// stripField serializes settings without the fields added after v1 to fake
+// a v1 file.
 func stripField(t *testing.T, s model.Settings) map[string]any {
 	t.Helper()
 	raw, _ := json.Marshal(s)
 	var m map[string]any
 	json.Unmarshal(raw, &m)
 	delete(m, "logRetentionMonths")
+	delete(m, "manualTimerMinutes")
 	return m
 }
 

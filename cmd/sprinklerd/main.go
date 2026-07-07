@@ -70,16 +70,11 @@ func run(configPath, dbPath string, portOverride int) error {
 		out = hardware.NewMock()
 	}
 
-	// weatherScale is consulted by the engine right before a weather-adjusted
-	// schedule starts, like the original.
-	weatherScale := func() int {
-		s := cfg.Snapshot().Settings
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		return weather.Scale(weather.ForSettings(s).GetVals(ctx, s))
-	}
+	// The weather cache is refreshed hourly in the background; the engine
+	// reads only the cached scale and never blocks on the network.
+	wcache := weather.NewCache(func() model.Settings { return cfg.Snapshot().Settings })
 
-	eng := engine.New(cfg, out, logs, weatherScale, nil)
+	eng := engine.New(cfg, out, logs, wcache.Scale, nil)
 
 	// applyOutput swaps the hardware backend when output settings change.
 	var outMu sync.Mutex
@@ -104,11 +99,12 @@ func run(configPath, dbPath string, portOverride int) error {
 	if err != nil {
 		return err
 	}
-	srv := api.New(version, cfg, logs, eng, staticFS, applyOutput)
+	srv := api.New(version, cfg, logs, eng, wcache, staticFS, applyOutput)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	eng.Start(ctx)
+	go wcache.Run(ctx, time.Hour)
 
 	// Prune the zone log per retention setting, at startup and then daily.
 	go func() {
