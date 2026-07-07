@@ -1,7 +1,160 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, Settings as SettingsT, WeatherCheck } from '../api'
+import { AuthStatus, api, Settings as SettingsT, WeatherCheck } from '../api'
 import { useToast } from '../components'
-import { fmtSeconds } from '../util'
+import { MONTHS, fmtSeconds } from '../util'
+
+function SecurityCard() {
+  const [status, setStatus] = useState<AuthStatus | null>(null)
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [tokenName, setTokenName] = useState('')
+  const [newToken, setNewToken] = useState<string | null>(null)
+  const toast = useToast()
+
+  const refresh = () =>
+    api
+      .auth()
+      .then(setStatus)
+      .catch(() => {})
+  useEffect(() => {
+    refresh()
+  }, [])
+
+  if (!status) return null
+
+  const toggle = async (enabled: boolean) => {
+    try {
+      await api.setAuthEnabled(enabled)
+      toast(enabled ? 'Anmeldung aktiviert.' : 'Anmeldung deaktiviert.')
+      refresh()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const savePassword = async () => {
+    try {
+      await api.changePassword(currentPw, newPw)
+      toast('Passwort gespeichert.')
+      setCurrentPw('')
+      setNewPw('')
+      refresh()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const createToken = async () => {
+    try {
+      const res = await api.createToken(tokenName.trim())
+      setNewToken(res.token)
+      setTokenName('')
+      refresh()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const removeToken = async (name: string) => {
+    try {
+      await api.deleteToken(name)
+      toast(`Token „${name}" widerrufen.`)
+      refresh()
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Sicherheit</h2>
+      <div className="row spread" style={{ marginBottom: 10 }}>
+        <span>Anmeldung erforderlich</span>
+        <label className="switch">
+          <input
+            type="checkbox"
+            checked={status.enabled}
+            disabled={!status.hasPassword && !status.enabled}
+            onChange={(e) => toggle(e.target.checked)}
+          />
+          <span className="slider" />
+        </label>
+      </div>
+      {!status.hasPassword && (
+        <p className="muted small">
+          Zuerst ein Passwort setzen, dann lässt sich die Anmeldung aktivieren.
+        </p>
+      )}
+      <div className="row">
+        {status.hasPassword && (
+          <label className="field" style={{ flex: 1, minWidth: 160 }}>
+            <span>Aktuelles Passwort</span>
+            <input
+              type="password"
+              value={currentPw}
+              style={{ width: '100%' }}
+              onChange={(e) => setCurrentPw(e.target.value)}
+            />
+          </label>
+        )}
+        <label className="field" style={{ flex: 1, minWidth: 160 }}>
+          <span>Neues Passwort (min. 6 Zeichen)</span>
+          <input
+            type="password"
+            value={newPw}
+            style={{ width: '100%' }}
+            onChange={(e) => setNewPw(e.target.value)}
+          />
+        </label>
+      </div>
+      <div className="row" style={{ marginBottom: 14 }}>
+        <button disabled={newPw.length < 6} onClick={savePassword}>
+          Passwort speichern
+        </button>
+        {status.enabled && (
+          <button onClick={() => api.logout().then(() => window.location.reload())}>
+            Abmelden
+          </button>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 14 }}>API-Tokens für Automatisierung</h2>
+      {(status.tokens ?? []).map((t) => (
+        <div className="zone-row" key={t.name}>
+          <span className="name">{t.name}</span>
+          <span className="muted small">
+            seit {new Date(t.createdAt * 1000).toLocaleDateString('de-DE')}
+          </span>
+          <button className="danger" onClick={() => removeToken(t.name)}>
+            Widerrufen
+          </button>
+        </div>
+      ))}
+      <div className="row" style={{ marginTop: 8 }}>
+        <input
+          type="text"
+          placeholder="Token-Name (z. B. homeassistant)"
+          value={tokenName}
+          onChange={(e) => setTokenName(e.target.value)}
+        />
+        <button disabled={tokenName.trim() === ''} onClick={createToken}>
+          Token erzeugen
+        </button>
+      </div>
+      {newToken && (
+        <div className="banner info" style={{ marginTop: 10 }}>
+          Neues Token (wird nur einmal angezeigt): <code>{newToken}</code>
+          <br />
+          Verwendung: Header <code>Authorization: Bearer &lt;Token&gt;</code>
+        </div>
+      )}
+      <p className="muted small">
+        Bei aktivierter Anmeldung verlangen alle API-Aufrufe eine Sitzung oder ein Token; die
+        Weboberfläche zeigt eine Login-Seite.
+      </p>
+    </div>
+  )
+}
 
 export default function Settings() {
   const [form, setForm] = useState<SettingsT | null>(null)
@@ -70,15 +223,47 @@ export default function Settings() {
       <div className="card">
         <h2>Bewässerung</h2>
         <label className="field">
-          <span>Saisonale Anpassung: {form.seasonalAdjust} %</span>
-          <input
-            type="number"
-            min={0}
-            max={200}
-            value={form.seasonalAdjust}
-            onChange={(e) => patch({ seasonalAdjust: Number(e.target.value) || 0 })}
-          />
+          <span>Saisonale Anpassung</span>
+          <select
+            value={form.seasonalMode}
+            onChange={(e) => patch({ seasonalMode: e.target.value as SettingsT['seasonalMode'] })}
+          >
+            <option value="global">Ein globaler Prozentwert</option>
+            <option value="monthly">Monatsprofil (12 Werte)</option>
+          </select>
         </label>
+        {form.seasonalMode === 'global' ? (
+          <label className="field">
+            <span>Anpassung: {form.seasonalAdjust} %</span>
+            <input
+              type="number"
+              min={0}
+              max={200}
+              value={form.seasonalAdjust}
+              onChange={(e) => patch({ seasonalAdjust: Number(e.target.value) || 0 })}
+            />
+          </label>
+        ) : (
+          <div className="month-grid">
+            {MONTHS.map((m, i) => (
+              <label className="field" key={m}>
+                <span>{m}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={200}
+                  value={form.seasonalMonthly[i] ?? 100}
+                  onChange={(e) => {
+                    const monthly = [...form.seasonalMonthly]
+                    while (monthly.length < 12) monthly.push(100)
+                    monthly[i] = Math.max(0, Math.min(200, Number(e.target.value) || 0))
+                    patch({ seasonalMonthly: monthly })
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        )}
         <p className="muted small">
           Skaliert alle Programmlaufzeiten (100 % = keine Anpassung). Wird mit der Wetter-Anpassung
           multipliziert.
@@ -121,6 +306,32 @@ export default function Settings() {
             />
           </label>
         )}
+        <div className="row" style={{ gap: 24 }}>
+          <label className="field">
+            <span>Pumpen-Vorlauf (Sekunden)</span>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={form.pumpPreSeconds}
+              onChange={(e) => patch({ pumpPreSeconds: Number(e.target.value) || 0 })}
+            />
+          </label>
+          <label className="field">
+            <span>Pumpen-Nachlauf (Sekunden)</span>
+            <input
+              type="number"
+              min={0}
+              max={120}
+              value={form.pumpPostSeconds}
+              onChange={(e) => patch({ pumpPostSeconds: Number(e.target.value) || 0 })}
+            />
+          </label>
+        </div>
+        <p className="muted small">
+          Vorlauf: Pumpe/Hauptventil startet vor dem Zonenventil; Nachlauf: läuft nach dem Schließen
+          nach (0 = gleichzeitig).
+        </p>
       </div>
 
       <div className="card">
@@ -259,6 +470,8 @@ export default function Settings() {
           Ausgangs- und Wetterfehlern — z. B. an ntfy oder Node-RED.
         </p>
       </div>
+
+      <SecurityCard />
 
       <div className="card">
         <h2>Sicherung</h2>

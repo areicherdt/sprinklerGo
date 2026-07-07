@@ -23,12 +23,13 @@ import (
 var openapiSpec []byte
 
 type Server struct {
-	version string
-	cfg     *store.ConfigStore
-	logs    *store.LogStore
-	eng     *engine.Engine
-	weather *weather.Cache
-	static  fs.FS
+	version  string
+	cfg      *store.ConfigStore
+	logs     *store.LogStore
+	eng      *engine.Engine
+	weather  *weather.Cache
+	static   fs.FS
+	sessions *sessionStore
 	// applyOutput rebuilds the hardware backend after output-relevant
 	// settings changed. May be nil (tests).
 	applyOutput func(model.Settings) error
@@ -38,7 +39,10 @@ func New(version string, cfg *store.ConfigStore, logs *store.LogStore, eng *engi
 	if wcache == nil {
 		wcache = weather.NewCache(func() model.Settings { return cfg.Snapshot().Settings })
 	}
-	return &Server{version: version, cfg: cfg, logs: logs, eng: eng, weather: wcache, static: static, applyOutput: applyOutput}
+	return &Server{
+		version: version, cfg: cfg, logs: logs, eng: eng, weather: wcache,
+		static: static, sessions: newSessionStore(), applyOutput: applyOutput,
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -64,6 +68,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/events", s.getEvents)
 	mux.HandleFunc("GET /api/backup", s.getBackup)
 	mux.HandleFunc("POST /api/restore", s.postRestore)
+	mux.HandleFunc("GET /api/auth", s.getAuth)
+	mux.HandleFunc("PUT /api/auth", s.putAuth)
+	mux.HandleFunc("POST /api/auth/login", s.postLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.postLogout)
+	mux.HandleFunc("POST /api/auth/password", s.postPassword)
+	mux.HandleFunc("POST /api/auth/tokens", s.postToken)
+	mux.HandleFunc("DELETE /api/auth/tokens/{name}", s.deleteToken)
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openapiSpec)
@@ -75,7 +86,7 @@ func (s *Server) Handler() http.Handler {
 	if s.static != nil {
 		mux.Handle("/", spaHandler(s.static))
 	}
-	return mux
+	return s.requireAuth(mux)
 }
 
 // ---- JSON helpers ----
@@ -115,6 +126,7 @@ type plannedDTO struct {
 	ScheduleID   int    `json:"scheduleId"`
 	ScheduleName string `json:"scheduleName"`
 	At           int64  `json:"at"`
+	Waiting      bool   `json:"waiting"`
 }
 
 type zoneRunDTO struct {
@@ -192,7 +204,8 @@ func (s *Server) stateDTO() stateDTO {
 	dto.ScheduleName = schedName(st.ScheduleID)
 	for _, p := range st.Planned {
 		dto.Planned = append(dto.Planned, plannedDTO{
-			ScheduleID: p.ScheduleID, ScheduleName: schedName(p.ScheduleID), At: p.At.Unix(),
+			ScheduleID: p.ScheduleID, ScheduleName: schedName(p.ScheduleID),
+			At: p.At.Unix(), Waiting: p.Waiting,
 		})
 	}
 	for _, q := range st.Queue {

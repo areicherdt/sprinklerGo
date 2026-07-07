@@ -23,6 +23,8 @@ Die Modernisierung von Workflow, UI und Prozessen (M7–M12) ist in
 - Regenpause, Timer für manuelle Läufe, Live-Updates per SSE
 - **MQTT mit Home-Assistant-Discovery** (Zonen als Schalter, Automatik, Regenpause,
   Stopp-Taste, Sensoren), Webhook-Benachrichtigungen, Backup/Restore im UI
+- Zyklus & Sickern, Pumpen-Vor-/Nachlauf, Monatsprofil für die saisonale Anpassung
+- Optionaler Login mit API-Tokens; als PWA auf dem Homescreen installierbar
 - Hardware-Backends: `none` (Test), externes Skript (kompatibel zum Original),
   GPIO direkt aktiv-high/-low (Linux gpiochip)
 - REST-API (`/api/...`) + eingebettetes React-Frontend (deutsch, hell/dunkel)
@@ -90,12 +92,46 @@ Vortageswerten, multipliziert mit der saisonalen Anpassung.
 go test ./...                 # Backend-Tests (Engine mit simulierter Uhr)
 cd web && npm run dev         # Frontend-Dev-Server, proxied /api auf :8080
 cd web && npm run check       # TypeScript + ESLint + Prettier
+go build -o bin/sprinklerd-e2e ./cmd/sprinklerd && cd web && npm run e2e
+                              # Playwright-E2E gegen das echte Binary
 ```
 
 CI (GitHub Actions) prüft bei jedem Push: Frontend-Check und -Build,
 `go vet`, `golangci-lint`, alle Tests und den arm64-Cross-Compile. Ein
 `v*`-Tag baut Release-Binaries (linux/arm64 + amd64) und veröffentlicht sie
 als GitHub-Release.
+
+## Docker
+
+Alternativ zum Binary gibt es ein Multi-Arch-Image (amd64/arm64) auf ghcr.io:
+
+```sh
+docker run -d --name sprinklerd \
+  -p 8080:8080 \
+  -v sprinklerd-data:/data \
+  -e TZ=Europe/Vienna \
+  ghcr.io/areicherdt/sprinklergo:latest
+```
+
+Für GPIO-Ausgänge zusätzlich `--device /dev/gpiochip0 --group-add $(getent group gpio | cut -d: -f3)`.
+Die Zeitzone (`TZ`) bestimmt die Startzeiten der Programme.
+
+## Sicherheit
+
+Standardmäßig ist die API offen (LAN-Annahme wie beim Original). Unter
+Einstellungen → Sicherheit lässt sich ein Passwort setzen und die Anmeldung
+aktivieren: Die Weboberfläche verlangt dann einen Login (Session-Cookie,
+30 Tage), API-Aufrufe brauchen ein Token (`Authorization: Bearer <token>`),
+das dort erzeugt und widerrufen werden kann.
+
+Für Zugriff von außerhalb des LANs empfiehlt sich ein Reverse-Proxy mit
+HTTPS, z. B. Caddy:
+
+```
+sprinkler.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
 
 ## Home Assistant anbinden
 

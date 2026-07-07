@@ -1,0 +1,23 @@
+{
+  "name": "sprinklerGo",
+  "short_name": "sprinklerGo",
+  "description": "Bewässerungssteuerung",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121211",
+  "theme_color": "#2a78d6",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "/sprinkler.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

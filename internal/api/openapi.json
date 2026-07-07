@@ -238,6 +238,157 @@
         }
       }
     },
+    "/api/auth": {
+      "get": {
+        "summary": "Auth-Status (immer erreichbar)",
+        "operationId": "getAuth",
+        "responses": {
+          "200": {
+            "description": "Status; Token-Liste nur für angemeldete Aufrufer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "loggedIn": { "type": "boolean" },
+                    "hasPassword": { "type": "boolean" },
+                    "tokens": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "createdAt": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Anmeldung aktivieren/deaktivieren (Passwort muss gesetzt sein)",
+        "operationId": "putAuth",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["enabled"],
+                "properties": { "enabled": { "type": "boolean" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Anmelden — setzt ein Session-Cookie (30 Tage)",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["password"],
+                "properties": { "password": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "summary": "Abmelden",
+        "operationId": "logout",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/api/auth/password": {
+      "post": {
+        "summary": "Passwort setzen oder ändern (invalidiert andere Sitzungen)",
+        "operationId": "changePassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["new"],
+                "properties": {
+                  "current": { "type": "string" },
+                  "new": { "type": "string", "minLength": 6 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/auth/tokens": {
+      "post": {
+        "summary": "API-Token erzeugen (Klartext nur in dieser Antwort)",
+        "description": "Verwendung: Header \"Authorization: Bearer <token>\". Gespeichert wird nur der SHA-256.",
+        "operationId": "createToken",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": { "name": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Erzeugt",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "token": { "type": "string" } } }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/auth/tokens/{name}": {
+      "delete": {
+        "summary": "API-Token widerrufen",
+        "operationId": "deleteToken",
+        "parameters": [
+          { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/backup": {
       "get": {
         "summary": "Konfiguration als Datei exportieren",
@@ -534,7 +685,9 @@
           "durations": {
             "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 255 },
             "description": "Minuten je Zone, Index = Zonen-ID; wird serverseitig auf Zonenanzahl aufgefüllt"
-          }
+          },
+          "cycleMaxMinutes": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Zyklus & Sickern: max. Zyklusdauer (0 = aus)" },
+          "soakMinutes": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Sickerpause je Zone zwischen ihren Zyklen" }
         }
       },
       "NextRun": {
@@ -553,6 +706,10 @@
           "scriptPath": { "type": "string", "description": "aufgerufen als \"<pfad> <ausgang> <0|1>\"" },
           "gpioPins": { "type": "array", "items": { "type": "integer" }, "minItems": 16, "maxItems": 16, "description": "BCM-Pins, Index 0 = Pumpe" },
           "seasonalAdjust": { "type": "integer", "minimum": 0, "maximum": 200 },
+          "seasonalMode": { "type": "string", "enum": ["global", "monthly"] },
+          "seasonalMonthly": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 200 }, "minItems": 12, "maxItems": 12 },
+          "pumpPreSeconds": { "type": "integer", "minimum": 0, "maximum": 120, "description": "Pumpen-Vorlauf vor dem Zonenventil" },
+          "pumpPostSeconds": { "type": "integer", "minimum": 0, "maximum": 120, "description": "Pumpen-Nachlauf nach dem Zonenventil" },
           "weatherProvider": { "type": "string", "enum": ["none", "openmeteo"] },
           "apiKey": { "type": "string" },
           "apiSecret": { "type": "string" },

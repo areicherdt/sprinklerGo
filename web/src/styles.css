@@ -576,6 +576,21 @@ ul.timeline {
   font-weight: 500;
 }
 
+/* ---- monthly profile grid ---- */
+
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px 12px;
+  max-width: 640px;
+}
+.month-grid input {
+  width: 100%;
+}
+.month-grid .field {
+  margin-bottom: 0;
+}
+
 /* ---- stepper ---- */
 
 .stepper {

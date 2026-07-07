@@ -38,3 +38,12 @@ jobs:
 
       - name: Cross-compile for Raspberry Pi (arm64)
         run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/sprinklerd
+
+      - name: Build E2E binary
+        run: go build -o bin/sprinklerd-e2e ./cmd/sprinklerd
+
+      - name: E2E tests (Playwright)
+        working-directory: web
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test

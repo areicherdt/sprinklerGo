@@ -44,6 +44,8 @@ export default function Schedules() {
         weatherAdjust: full.weatherAdjust,
         startTimes: full.startTimes,
         durations: full.durations,
+        cycleMaxMinutes: full.cycleMaxMinutes,
+        soakMinutes: full.soakMinutes,
       })
       toast(`Programm „${s.name}" dupliziert (Kopie ist deaktiviert).`)
       refresh()

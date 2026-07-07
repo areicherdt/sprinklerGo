@@ -16,6 +16,7 @@ var migrations = []migration{
 	migrateV1AddLogRetention,
 	migrateV2AddManualTimer,
 	migrateV3AddIntegration,
+	migrateV4AddSeasonalProfileAndAuth,
 }
 
 // v1 → v2: introduce settings.logRetentionMonths (default 24; 0 = unlimited).
@@ -55,6 +56,30 @@ func migrateV3AddIntegration(cfg map[string]any) error {
 	}
 	if _, exists := settings["mqttHADiscovery"]; !exists {
 		settings["mqttHADiscovery"] = true
+	}
+	return nil
+}
+
+// v4 → v5: seasonal profile (mode + 12-month curve), pump pre/post run and
+// the auth section. Numeric zero defaults need no migration; the mode and
+// the profile do.
+func migrateV4AddSeasonalProfileAndAuth(cfg map[string]any) error {
+	settings, ok := cfg["settings"].(map[string]any)
+	if !ok {
+		return errors.New("config has no settings object")
+	}
+	if _, exists := settings["seasonalMode"]; !exists {
+		settings["seasonalMode"] = "global"
+	}
+	if _, exists := settings["seasonalMonthly"]; !exists {
+		monthly := make([]any, 12)
+		for i := range monthly {
+			monthly[i] = 100
+		}
+		settings["seasonalMonthly"] = monthly
+	}
+	if _, exists := cfg["auth"]; !exists {
+		cfg["auth"] = map[string]any{"enabled": false}
 	}
 	return nil
 }

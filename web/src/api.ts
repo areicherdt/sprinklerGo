@@ -4,6 +4,7 @@ export interface PlannedStart {
   scheduleId: number
   scheduleName: string
   at: number
+  waiting: boolean
 }
 
 export interface QueuedZoneRun {
@@ -26,7 +27,7 @@ export interface StateDTO {
   version: string
   time: number
   schedulerEnabled: boolean
-  mode: 'idle' | 'schedule' | 'manual'
+  mode: 'idle' | 'schedule' | 'manual' | 'soaking'
   zoneId: number
   zoneName?: string
   scheduleId: number
@@ -69,6 +70,8 @@ export interface Schedule {
   weatherAdjust: boolean
   startTimes: number[]
   durations: number[]
+  cycleMaxMinutes: number
+  soakMinutes: number
   nextRun: NextRun | null
 }
 
@@ -82,6 +85,10 @@ export interface Settings {
   scriptPath: string
   gpioPins: number[]
   seasonalAdjust: number
+  seasonalMode: 'global' | 'monthly'
+  seasonalMonthly: number[]
+  pumpPreSeconds: number
+  pumpPostSeconds: number
   weatherProvider: string
   apiKey: string
   apiSecret: string
@@ -144,6 +151,13 @@ export interface ZoneSeries {
 
 export type Grouping = 'none' | 'hour' | 'day' | 'month'
 
+export interface AuthStatus {
+  enabled: boolean
+  loggedIn: boolean
+  hasPassword: boolean
+  tokens?: { name: string; createdAt: number }[]
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -152,6 +166,10 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/api/auth')) {
+      // Session expired: let the app shell re-check and show the login.
+      window.dispatchEvent(new Event('sprinklergo:unauthorized'))
+    }
     throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`)
   }
   return data as T
@@ -187,6 +205,15 @@ export const api = {
       return data
     }),
   weatherCheck: () => req<WeatherCheck>('GET', '/api/weather/check'),
+
+  auth: () => req<AuthStatus>('GET', '/api/auth'),
+  login: (password: string) => req('POST', '/api/auth/login', { password }),
+  logout: () => req('POST', '/api/auth/logout'),
+  setAuthEnabled: (enabled: boolean) => req('PUT', '/api/auth', { enabled }),
+  changePassword: (current: string, next: string) =>
+    req('POST', '/api/auth/password', { current, new: next }),
+  createToken: (name: string) => req<{ token: string }>('POST', '/api/auth/tokens', { name }),
+  deleteToken: (name: string) => req('DELETE', `/api/auth/tokens/${encodeURIComponent(name)}`),
 
   logEntries: (start: number, end: number) =>
     req<{ entries: LogEntry[] }>('GET', `/api/logs?group=none&start=${start}&end=${end}`),

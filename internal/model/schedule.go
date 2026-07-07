@@ -42,6 +42,11 @@ type Schedule struct {
 	StartTimes []int `json:"startTimes"`
 	// Durations holds minutes per zone (0 = skip zone), indexed by zone id.
 	Durations []int `json:"durations"`
+	// Cycle & soak: zone runtimes are split into cycles of at most
+	// CycleMaxMinutes, and a zone pauses SoakMinutes before it runs again
+	// (0 = off, classic sequential run).
+	CycleMaxMinutes int `json:"cycleMaxMinutes"`
+	SoakMinutes     int `json:"soakMinutes"`
 }
 
 func (s *Schedule) Validate(numZones int) error {
@@ -75,6 +80,15 @@ func (s *Schedule) Validate(numZones int) error {
 		if d < 0 || d > MaxZoneMinutes {
 			return fmt.Errorf("duration for zone %d out of range 0-%d", i, MaxZoneMinutes)
 		}
+	}
+	if s.CycleMaxMinutes < 0 || s.CycleMaxMinutes > MaxZoneMinutes {
+		return fmt.Errorf("cycleMaxMinutes out of range 0-%d", MaxZoneMinutes)
+	}
+	if s.SoakMinutes < 0 || s.SoakMinutes > MaxZoneMinutes {
+		return fmt.Errorf("soakMinutes out of range 0-%d", MaxZoneMinutes)
+	}
+	if s.SoakMinutes > 0 && s.CycleMaxMinutes == 0 {
+		return fmt.Errorf("soakMinutes requires cycleMaxMinutes > 0")
 	}
 	return nil
 }

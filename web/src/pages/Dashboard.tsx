@@ -64,20 +64,28 @@ export default function Dashboard() {
         info: `${a.zones} ${a.zones === 1 ? 'Zone' : 'Zonen'}, ${fmtSeconds(a.seconds)}`,
       })
     }
-    if (state.mode === 'schedule' && state.queue.length > 0) {
-      const done = state.queue.filter((q) => q.done).length + 1
+    if ((state.mode === 'schedule' || state.mode === 'soaking') && state.queue.length > 0) {
+      const done = state.queue.filter((q) => q.done).length
       rows.push({
         at: state.queue[0].start,
         status: 'run',
         label: state.scheduleName ?? 'Programm',
-        info: `läuft — Zone ${done}/${state.queue.length}`,
+        info:
+          state.mode === 'soaking'
+            ? `Sickerpause — ${done}/${state.queue.length} Zyklen`
+            : `läuft — Zyklus ${Math.min(done + 1, state.queue.length)}/${state.queue.length}`,
       })
     }
     if (state.mode === 'manual') {
       rows.push({ at: state.time, status: 'run', label: `${state.zoneName}`, info: 'manuell' })
     }
     for (const p of state.planned) {
-      rows.push({ at: p.at, status: 'plan', label: p.scheduleName, info: 'geplant' })
+      rows.push({
+        at: p.at,
+        status: 'plan',
+        label: p.scheduleName,
+        info: p.waiting ? 'wartet auf laufendes Programm' : 'geplant',
+      })
     }
     return rows.sort((a, b) => a.at - b.at)
   }, [state, completed, schedNames])
@@ -112,7 +120,9 @@ export default function Dashboard() {
           </div>
           {state && running ? (
             <>
-              <div className="hero-number">{state.zoneName}</div>
+              <div className="hero-number">
+                {state.mode === 'soaking' ? 'Sickerpause' : state.zoneName}
+              </div>
               <p className="muted">
                 {state.mode === 'manual' ? (
                   remaining < 0 ? (
@@ -120,28 +130,33 @@ export default function Dashboard() {
                   ) : (
                     <>Manuell — noch {fmtSeconds(remaining)}</>
                   )
+                ) : state.mode === 'soaking' ? (
+                  <>
+                    Programm „{state.scheduleName}&quot; — nächste Zone in {fmtSeconds(remaining)}
+                  </>
                 ) : (
                   <>
                     Programm „{state.scheduleName}&quot; — Zone noch {fmtSeconds(remaining)}
                   </>
                 )}
               </p>
-              {state.mode === 'schedule' && state.queue.length > 0 && (
-                <div
-                  className="progress"
-                  role="img"
-                  aria-label="Fortschritt der Zonen des laufenden Programms"
-                >
-                  {state.queue.map((q) => (
-                    <div
-                      key={q.zoneId}
-                      className={`seg ${q.done ? 'done' : q.active ? 'active' : ''}`}
-                      style={{ flexGrow: Math.max(1, q.end - q.start) }}
-                      title={q.zoneName}
-                    />
-                  ))}
-                </div>
-              )}
+              {(state.mode === 'schedule' || state.mode === 'soaking') &&
+                state.queue.length > 0 && (
+                  <div
+                    className="progress"
+                    role="img"
+                    aria-label="Fortschritt der Zonen des laufenden Programms"
+                  >
+                    {state.queue.map((q, i) => (
+                      <div
+                        key={i}
+                        className={`seg ${q.done ? 'done' : q.active ? 'active' : ''}`}
+                        style={{ flexGrow: Math.max(1, q.end - q.start) }}
+                        title={q.zoneName}
+                      />
+                    ))}
+                  </div>
+                )}
               <button className="danger" onClick={() => act(api.stop(), 'Bewässerung gestoppt.')}>
                 Alles stoppen
               </button>

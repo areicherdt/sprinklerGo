@@ -419,6 +419,122 @@ func TestBackupAndRestore(t *testing.T) {
 	}
 }
 
+func TestAuthFlow(t *testing.T) {
+	e := newEnv(t)
+
+	// Open by default.
+	if code, _ := e.call(t, "GET", "/api/state", nil); code != 200 {
+		t.Fatalf("auth disabled must leave the API open, got %d", code)
+	}
+
+	// Set a password, then enable auth.
+	if code, _ := e.call(t, "POST", "/api/auth/password", map[string]any{"current": "", "new": "geheim1"}); code != 200 {
+		t.Fatalf("set password failed: %d", code)
+	}
+	if code, _ := e.call(t, "PUT", "/api/auth", map[string]any{"enabled": true}); code != 200 {
+		t.Fatalf("enable auth failed: %d", code)
+	}
+
+	// Unauthenticated requests are rejected; the probe stays open.
+	if code, _ := e.call(t, "GET", "/api/state", nil); code != 401 {
+		t.Errorf("want 401 without session, got %d", code)
+	}
+	code, probe := e.call(t, "GET", "/api/auth", nil)
+	if code != 200 || probe["enabled"] != true || probe["loggedIn"] != false {
+		t.Errorf("auth probe: %d %+v", code, probe)
+	}
+
+	// Wrong password fails, right one issues a session cookie.
+	if code, _ := e.call(t, "POST", "/api/auth/login", map[string]any{"password": "falsch"}); code != 401 {
+		t.Errorf("wrong password: want 401, got %d", code)
+	}
+	body, _ := json.Marshal(map[string]any{"password": "geheim1"})
+	resp, err := http.Post(e.ts.URL+"/api/auth/login", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	var cookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "sprinklergo_session" {
+			cookie = c
+		}
+	}
+	if resp.StatusCode != 200 || cookie == nil {
+		t.Fatalf("login: %d, cookie %v", resp.StatusCode, cookie)
+	}
+
+	withCookie := func(method, path string, payload any) int {
+		var buf bytes.Buffer
+		if payload != nil {
+			json.NewEncoder(&buf).Encode(payload)
+		}
+		req, _ := http.NewRequest(method, e.ts.URL+path, &buf)
+		req.AddCookie(cookie)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		io.Copy(io.Discard, res.Body)
+		return res.StatusCode
+	}
+	if code := withCookie("GET", "/api/state", nil); code != 200 {
+		t.Errorf("session cookie must grant access, got %d", code)
+	}
+
+	// API token: create with the session, use via Bearer header.
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
+	{
+		var buf bytes.Buffer
+		json.NewEncoder(&buf).Encode(map[string]any{"name": "homeassistant"})
+		req, _ := http.NewRequest("POST", e.ts.URL+"/api/auth/tokens", &buf)
+		req.AddCookie(cookie)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		json.NewDecoder(res.Body).Decode(&tokenResp)
+		res.Body.Close()
+		if res.StatusCode != 201 || len(tokenResp.Token) != 64 {
+			t.Fatalf("create token: %d %q", res.StatusCode, tokenResp.Token)
+		}
+	}
+	req, _ := http.NewRequest("GET", e.ts.URL+"/api/state", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenResp.Token)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Errorf("bearer token must grant access, got %d", res.StatusCode)
+	}
+
+	// Revoke the token — bearer access ends.
+	if code := withCookie("DELETE", "/api/auth/tokens/homeassistant", nil); code != 200 {
+		t.Fatalf("delete token failed: %d", code)
+	}
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Errorf("revoked token must be rejected, got %d", res.StatusCode)
+	}
+
+	// The SPA shell stays reachable for the login page.
+	if code := withCookie("PUT", "/api/auth", map[string]any{"enabled": false}); code != 200 {
+		t.Fatalf("disable auth failed: %d", code)
+	}
+	if code, _ := e.call(t, "GET", "/api/state", nil); code != 200 {
+		t.Errorf("after disabling auth the API must be open again, got %d", code)
+	}
+}
+
 func TestOpenAPISpec(t *testing.T) {
 	e := newEnv(t)
 	code, spec := e.call(t, "GET", "/api/openapi.json", nil)

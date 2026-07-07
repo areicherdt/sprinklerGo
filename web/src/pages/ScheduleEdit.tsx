@@ -19,6 +19,8 @@ const EMPTY: SchedulePayload = {
   weatherAdjust: false,
   startTimes: [],
   durations: [],
+  cycleMaxMinutes: 0,
+  soakMinutes: 0,
 }
 
 function previewLabel(p: { day: Date; inDays: number; times: number[] }): string {
@@ -71,6 +73,8 @@ export default function ScheduleEdit() {
             weatherAdjust: s.weatherAdjust,
             startTimes: s.startTimes,
             durations: s.durations,
+            cycleMaxMinutes: s.cycleMaxMinutes,
+            soakMinutes: s.soakMinutes,
           })
           setSlots(
             Array.from({ length: 4 }, (_, i) => ({
@@ -290,6 +294,35 @@ export default function ScheduleEdit() {
         {enabledZones.length === 0 && (
           <p className="muted">Keine aktiven Zonen — erst unter „Zonen&quot; welche aktivieren.</p>
         )}
+
+        <h2 style={{ marginTop: 16 }}>Zyklus &amp; Sickern (optional)</h2>
+        <div className="row" style={{ gap: 24 }}>
+          <label className="field">
+            <span>Max. Zyklusdauer (Minuten, 0 = aus)</span>
+            <input
+              type="number"
+              min={0}
+              max={255}
+              value={form.cycleMaxMinutes}
+              onChange={(e) => patch({ cycleMaxMinutes: Number(e.target.value) || 0 })}
+            />
+          </label>
+          <label className="field">
+            <span>Sickerpause je Zone (Minuten)</span>
+            <input
+              type="number"
+              min={0}
+              max={255}
+              value={form.soakMinutes}
+              disabled={form.cycleMaxMinutes === 0}
+              onChange={(e) => patch({ soakMinutes: Number(e.target.value) || 0 })}
+            />
+          </label>
+        </div>
+        <p className="muted small">
+          Teilt lange Laufzeiten in Zyklen auf, damit das Wasser einsickern kann statt abzufließen.
+          Die Zonen wechseln sich ab; muss eine Zone noch sickern, pausiert die Bewässerung.
+        </p>
       </div>
 
       <div className="row">

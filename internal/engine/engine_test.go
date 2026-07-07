@@ -100,6 +100,14 @@ func (r *rig) stepTo(end time.Time) {
 	}
 }
 
+// stepSeconds advances the clock in one-second ticks (for pump pre/post).
+func (r *rig) stepSeconds(end time.Time) {
+	for r.clk.t.Before(end) {
+		r.clk.t = r.clk.t.Add(time.Second)
+		r.eng.Tick()
+	}
+}
+
 func expectTransitions(t *testing.T, got []transition, want []transition) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -459,6 +467,118 @@ func TestRunCrossesMidnight(t *testing.T) {
 	})
 	if len(r.log.rows) != 1 || r.log.rows[0].seconds != 5*60 {
 		t.Errorf("midnight-crossing run log wrong: %+v", r.log.rows)
+	}
+}
+
+func TestCycleAndSoak(t *testing.T) {
+	cfg := testConfig()
+	s := everyDaySchedule("CS", 10*60, 4, 4, 0)
+	s.CycleMaxMinutes = 2
+	s.SoakMinutes = 3
+	cfg.Schedules = []model.Schedule{s}
+
+	r := newRig(cfg, at(9, 59), nil)
+	r.stepTo(at(10, 12))
+
+	// z1 10:00-02, z2 10:02-04, pause (z1 soaks until 10:05),
+	// z1 10:05-07, z2 10:07-09 (soak already satisfied), off 10:09.
+	expectTransitions(t, r.out.trans, []transition{
+		{at(9, 59), 0},
+		{at(10, 0), 1 << 1},
+		{at(10, 2), 1 << 2},
+		{at(10, 4), 0}, // soak pause
+		{at(10, 5), 1 << 1},
+		{at(10, 7), 1 << 2},
+		{at(10, 9), 0},
+	})
+	if len(r.log.rows) != 4 {
+		t.Fatalf("want 4 chunk log rows, got %+v", r.log.rows)
+	}
+	for i, row := range r.log.rows {
+		if row.seconds != 120 {
+			t.Errorf("chunk %d: %ds, want 120s", i, row.seconds)
+		}
+	}
+}
+
+func TestSoakStateIsVisible(t *testing.T) {
+	cfg := testConfig()
+	s := everyDaySchedule("CS", 10*60, 4, 0, 0)
+	s.CycleMaxMinutes = 2
+	s.SoakMinutes = 5
+	cfg.Schedules = []model.Schedule{s}
+
+	r := newRig(cfg, at(9, 59), nil)
+	r.stepTo(at(10, 3)) // chunk 1 ended 10:02, soak until 10:07
+	st := r.eng.State()
+	if st.Mode != "soaking" || st.ScheduleID != 0 {
+		t.Fatalf("want soaking state, got %+v", st)
+	}
+	if st.RemainingSeconds != 4*60 {
+		t.Errorf("remaining until next cycle = %d, want 240", st.RemainingSeconds)
+	}
+}
+
+func TestPumpPreAndPostRun(t *testing.T) {
+	cfg := testConfig()
+	cfg.Settings.PumpPreSeconds = 30
+	cfg.Settings.PumpPostSeconds = 45
+	cfg.Zones[0].Pump = true
+
+	r := newRig(cfg, at(10, 0), nil)
+	if err := r.eng.SetManualZone(0, true, 0); err != nil {
+		t.Fatal(err)
+	}
+	// Pump alone first, zone valve after the 30s pre-run.
+	r.stepSeconds(at(10, 1))
+	off := at(10, 5)
+	r.clk.t = off
+	r.eng.Tick()
+	if err := r.eng.SetManualZone(0, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	// Zone valve closes, pump finishes its 45s post-run.
+	r.stepSeconds(off.Add(time.Minute))
+
+	expectTransitions(t, r.out.trans, []transition{
+		{at(10, 0), 0},
+		{at(10, 0), 1},                          // pump pre-run
+		{at(10, 0).Add(30 * time.Second), 0b11}, // zone 1 + pump
+		{off, 1},                                // zone off, pump post-run
+		{off.Add(45 * time.Second), 0},
+	})
+}
+
+func TestMonthlySeasonalProfile(t *testing.T) {
+	cfg := testConfig()
+	cfg.Settings.SeasonalMode = "monthly"
+	cfg.Settings.SeasonalMonthly = model.DefaultSeasonalMonthly()
+	cfg.Settings.SeasonalMonthly[6] = 50 // Juli
+	cfg.Settings.SeasonalAdjust = 100
+	cfg.Schedules = []model.Schedule{everyDaySchedule("S", 6*60, 10, 0, 0)}
+
+	r := newRig(cfg, at(5, 59), nil) // test clock runs in July
+	r.stepTo(at(6, 30))
+	if len(r.log.rows) != 1 || r.log.rows[0].seconds != 5*60 || r.log.rows[0].seasonal != 50 {
+		t.Errorf("monthly profile not applied: %+v", r.log.rows)
+	}
+}
+
+func TestWaitingQueueIsVisible(t *testing.T) {
+	cfg := testConfig()
+	cfg.Schedules = []model.Schedule{
+		everyDaySchedule("A", 6*60, 5, 0, 0),
+		everyDaySchedule("B", 6*60, 0, 3, 0),
+	}
+	r := newRig(cfg, at(5, 59), nil)
+	r.stepTo(at(6, 2)) // A runs, B waits
+	st := r.eng.State()
+	if len(st.Planned) != 1 || st.Planned[0].ScheduleID != 1 || !st.Planned[0].Waiting {
+		t.Fatalf("B must be visible as waiting: %+v", st.Planned)
+	}
+	r.stepTo(at(6, 10))
+	if len(r.log.rows) != 2 {
+		t.Errorf("B must run after A: %+v", r.log.rows)
 	}
 }
 

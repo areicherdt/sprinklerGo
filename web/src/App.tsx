@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
+import { AuthStatus, api } from './api'
 import { ToastProvider } from './components'
 import Dashboard from './pages/Dashboard'
+import Login from './pages/Login'
 import Zones from './pages/Zones'
 import Schedules from './pages/Schedules'
 import ScheduleEdit from './pages/ScheduleEdit'
@@ -18,6 +21,24 @@ const NAV = [
 ]
 
 export default function App() {
+  const [auth, setAuth] = useState<AuthStatus | null>(null)
+
+  useEffect(() => {
+    const check = () =>
+      api
+        .auth()
+        .then(setAuth)
+        .catch(() => setAuth({ enabled: false, loggedIn: true, hasPassword: false }))
+    check()
+    window.addEventListener('sprinklergo:unauthorized', check)
+    return () => window.removeEventListener('sprinklergo:unauthorized', check)
+  }, [])
+
+  if (auth === null) return null
+  if (auth.enabled && !auth.loggedIn) {
+    return <Login onSuccess={() => api.auth().then(setAuth)} />
+  }
+
   return (
     <ToastProvider>
       <header className="app-header">

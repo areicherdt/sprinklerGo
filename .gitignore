@@ -2,6 +2,8 @@
 bin/
 web/dist/
 web/node_modules/
+web/test-results/
+web/playwright-report/
 
 # Laufzeitdaten
 config.json

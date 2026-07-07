@@ -46,7 +46,15 @@ const (
 	evZoneOn     eventKind = iota + 1 // original command 0x01
 	evAllOff                          // 0x02
 	evStartSched                      // 0x03
+	evPause                           // soak pause: outputs off, run continues
 )
+
+// outStep is a deferred output transition, used for the pump/master valve
+// pre- and post-run relative to the zone valves.
+type outStep struct {
+	at    time.Time
+	state uint16
+}
 
 type event struct {
 	at    time.Time
@@ -82,6 +90,7 @@ type Engine struct {
 	out         Output
 	pending     []event // today's schedule starts (evStartSched)
 	running     []event // expansion of the active run (evZoneOn/evAllOff)
+	outSteps    []outStep
 	run         runState
 	outState    uint16
 	prevOut     uint16
@@ -168,6 +177,7 @@ func (e *Engine) StopAll() {
 	now := e.now()
 	cfg := e.cfg.Snapshot()
 	e.running = e.running[:0]
+	e.outSteps = e.outSteps[:0]
 	e.clearRunLocked(now)
 	e.outState = 0
 	e.rebuildPendingLocked(false, now, &cfg)
@@ -189,13 +199,13 @@ func (e *Engine) SetManualZone(zoneID int, on bool, minutes int) error {
 	}
 	now := e.now()
 	if on {
-		e.turnOnZoneLocked(zoneID+1, &cfg)
+		e.turnOnZoneLocked(zoneID+1, now, &cfg)
 		e.setManualLocked(now, true, zoneID+1)
 		if minutes > 0 {
 			e.run.endAt = now.Add(time.Duration(minutes) * time.Minute)
 		}
 	} else {
-		e.outState = 0
+		e.setOutputsLocked(0, now, &cfg)
 		e.setManualLocked(now, false, -1)
 	}
 	e.latchLocked()
@@ -214,6 +224,7 @@ func (e *Engine) QuickRunSchedule(idx int) error {
 	now := e.now()
 	e.clearRunLocked(now)
 	e.outState = 0
+	e.outSteps = e.outSteps[:0]
 	e.rebuildPendingLocked(false, now, &cfg)
 	e.startScheduleLocked(idx, false, now, &cfg)
 	// The original fires ProcessEvents in the same loop pass, so the first
@@ -244,6 +255,7 @@ func (e *Engine) QuickRunDurations(durations []int) error {
 	now := e.now()
 	e.clearRunLocked(now)
 	e.outState = 0
+	e.outSteps = e.outSteps[:0]
 	e.rebuildPendingLocked(false, now, &cfg)
 	e.startScheduleLocked(0, true, now, &cfg)
 	e.processLocked(now, &cfg)
@@ -266,6 +278,7 @@ func (e *Engine) Shutdown() {
 	defer e.mu.Unlock()
 	e.pending = nil
 	e.running = nil
+	e.outSteps = nil
 	e.clearRunLocked(e.now())
 	e.outState = 0
 	e.latchLocked()
@@ -287,10 +300,12 @@ func (e *Engine) Rev() int64 {
 	return e.rev
 }
 
-// PlannedStart is an upcoming schedule start for the current day.
+// PlannedStart is an upcoming schedule start for the current day. Waiting
+// marks a start that is already due but queued behind the active run.
 type PlannedStart struct {
 	ScheduleID int
 	At         time.Time
+	Waiting    bool
 }
 
 // ZoneRun is one zone slot in the active run's queue.
@@ -334,11 +349,23 @@ func (e *Engine) State() State {
 		st.ZoneID = e.run.zone - 1
 		st.ScheduleID = e.run.schedID
 		st.RemainingSeconds = max(0, int(e.run.endAt.Sub(now).Seconds()))
+	case e.run.schedule:
+		// Soak pause: the run continues, no zone valve is open.
+		st.Mode = "soaking"
+		st.ScheduleID = e.run.schedID
+		for _, ev := range e.running {
+			if !ev.done && ev.kind == evZoneOn {
+				st.RemainingSeconds = max(0, int(ev.at.Sub(now).Seconds()))
+				break
+			}
+		}
 	}
 	for _, ev := range e.pending {
 		if !ev.done {
 			st.PendingEvents++
-			st.Planned = append(st.Planned, PlannedStart{ScheduleID: ev.sched, At: ev.at})
+			st.Planned = append(st.Planned, PlannedStart{
+				ScheduleID: ev.sched, At: ev.at, Waiting: !ev.at.After(now),
+			})
 		}
 	}
 	if e.run.schedule {
@@ -404,17 +431,30 @@ func (e *Engine) rebuildPendingLocked(includePast bool, now time.Time, cfg *mode
 	}
 }
 
+// seasonalPercent picks the effective seasonal adjustment: the global value
+// or, in monthly mode, the current month's profile entry.
+func seasonalPercent(s *model.Settings, now time.Time) int {
+	if s.SeasonalMode == "monthly" && len(s.SeasonalMonthly) == 12 {
+		return s.SeasonalMonthly[int(now.Month())-1]
+	}
+	return s.SeasonalAdjust
+}
+
 // startScheduleLocked ports LoadSchedTimeEvents: expand a schedule (or the
 // quick-run durations) into sequential zone on/off events starting now.
+// With cycle & soak enabled the zone runtimes are split into interleaved
+// cycles, with pause events wherever every zone still has to soak.
 func (e *Engine) startScheduleLocked(idx int, quick bool, now time.Time, cfg *model.Config) {
 	adj := adjustments{seasonal: -1, weather: -1}
 	var durations []int
+	cycleMax, soak := 0, 0
 	if quick {
 		durations = e.quick
 	} else {
 		s := cfg.Schedules[idx]
 		s.Normalize(len(cfg.Zones))
-		adj.seasonal = cfg.Settings.SeasonalAdjust
+		cycleMax, soak = s.CycleMaxMinutes, s.SoakMinutes
+		adj.seasonal = seasonalPercent(&cfg.Settings, now)
 		adj.weather = 100
 		if s.WeatherAdjust && e.weatherScale != nil {
 			adj.weather = e.weatherScale()
@@ -427,13 +467,50 @@ func (e *Engine) startScheduleLocked(idx int, quick bool, now time.Time, cfg *mo
 	}
 
 	e.running = e.running[:0]
-	at := now
+	remaining := make([]int, len(cfg.Zones))
 	for k := 0; k < len(cfg.Zones) && k < len(durations); k++ {
-		if cfg.Zones[k].Enabled && durations[k] > 0 {
-			end := at.Add(time.Duration(durations[k]) * time.Minute)
-			e.running = append(e.running, event{at: at, kind: evZoneOn, zone: k + 1, endAt: end})
-			at = end
+		if cfg.Zones[k].Enabled {
+			remaining[k] = durations[k]
 		}
+	}
+	lastEnd := make([]time.Time, len(cfg.Zones))
+	at := now
+	for {
+		// Pick the zone that can start earliest (soak time respected);
+		// ties keep the zone order like the original's sequential run.
+		best := -1
+		var bestStart time.Time
+		for k := range remaining {
+			if remaining[k] <= 0 {
+				continue
+			}
+			start := at
+			if soak > 0 && !lastEnd[k].IsZero() {
+				if earliest := lastEnd[k].Add(time.Duration(soak) * time.Minute); start.Before(earliest) {
+					start = earliest
+				}
+			}
+			if best == -1 || start.Before(bestStart) {
+				best = k
+				bestStart = start
+			}
+		}
+		if best == -1 {
+			break
+		}
+		chunk := remaining[best]
+		if cycleMax > 0 {
+			chunk = min(chunk, cycleMax)
+		}
+		if bestStart.After(at) {
+			// Every remaining zone still soaks: outputs off meanwhile.
+			e.running = append(e.running, event{at: at, kind: evPause})
+		}
+		end := bestStart.Add(time.Duration(chunk) * time.Minute)
+		e.running = append(e.running, event{at: bestStart, kind: evZoneOn, zone: best + 1, endAt: end})
+		remaining[best] -= chunk
+		lastEnd[best] = end
+		at = end
 	}
 	e.running = append(e.running, event{at: at, kind: evAllOff})
 
@@ -453,6 +530,12 @@ func (e *Engine) startScheduleLocked(idx int, quick bool, now time.Time, cfg *mo
 // freshly expanded schedule fires its first zone in the same pass, like the
 // original's single event array.
 func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
+	// Apply due pump pre-/post-run output steps.
+	for len(e.outSteps) > 0 && !now.Before(e.outSteps[0].at) {
+		e.outState = e.outSteps[0].state
+		e.outSteps = e.outSteps[1:]
+	}
+
 	rainDelayed := cfg.RainDelayUntil > 0 && now.Unix() < cfg.RainDelayUntil
 	for i := 0; i < len(e.pending); i++ {
 		if e.pending[i].done || now.Before(e.pending[i].at) {
@@ -466,8 +549,8 @@ func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
 			continue
 		}
 		if e.run.schedule {
-			// Another schedule is running: push this one off a minute.
-			e.pending[i].at = e.pending[i].at.Add(time.Minute)
+			// Another schedule is running: this start stays queued (visible
+			// as "waiting" in the state) and fires once the run ends.
 			continue
 		}
 		sched := e.pending[i].sched
@@ -482,12 +565,16 @@ func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
 		}
 		switch e.running[i].kind {
 		case evZoneOn:
-			e.turnOnZoneLocked(e.running[i].zone, cfg)
+			e.turnOnZoneLocked(e.running[i].zone, now, cfg)
 			e.continueScheduleLocked(now, e.running[i].zone, e.running[i].endAt)
+			e.running[i].done = true
+		case evPause:
+			e.setOutputsLocked(0, now, cfg)
+			e.pauseRunLocked(now)
 			e.running[i].done = true
 		case evAllOff:
 			finished := e.run.schedID
-			e.outState = 0
+			e.setOutputsLocked(0, now, cfg)
 			e.clearRunLocked(now)
 			e.running[i].done = true
 			e.emitLocked(notify.EventRunFinished, map[string]any{"scheduleId": finished})
@@ -496,22 +583,44 @@ func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
 	// Manual timer expiry.
 	if e.run.manual && !e.run.endAt.IsZero() && !now.Before(e.run.endAt) {
 		zone := e.run.zone - 1
-		e.outState = 0
+		e.setOutputsLocked(0, now, cfg)
 		e.setManualLocked(now, false, -1)
 		e.emitLocked(notify.EventRunFinished, map[string]any{"scheduleId": ScheduleManual, "zoneId": zone})
 	}
 }
 
+// setOutputsLocked moves the outputs toward target, inserting the pump/
+// master valve pre- or post-run when configured: the pump starts alone
+// before the first zone valve opens, and keeps running alone after the last
+// zone valve closed.
+func (e *Engine) setOutputsLocked(target uint16, now time.Time, cfg *model.Config) {
+	e.outSteps = e.outSteps[:0]
+	pre := time.Duration(cfg.Settings.PumpPreSeconds) * time.Second
+	post := time.Duration(cfg.Settings.PumpPostSeconds) * time.Second
+	cur := e.outState
+	switch {
+	case pre > 0 && target&1 == 1 && cur&1 == 0 && target&^1 != 0:
+		e.outState = 1 // pump only, zone valve follows after the pre-run
+		e.outSteps = append(e.outSteps, outStep{at: now.Add(pre), state: target})
+	case post > 0 && target == 0 && cur&1 == 1 && cur&^1 != 0:
+		e.outState = 1 // zone valves off, pump finishes its post-run
+		e.outSteps = append(e.outSteps, outStep{at: now.Add(post), state: 0})
+	default:
+		e.outState = target
+	}
+}
+
 // turnOnZoneLocked ports TurnOnZone: exactly one zone on at a time, plus the
 // pump/master output if the zone requires it.
-func (e *Engine) turnOnZoneLocked(valve int, cfg *model.Config) {
+func (e *Engine) turnOnZoneLocked(valve int, now time.Time, cfg *model.Config) {
 	if valve < 1 || valve > len(cfg.Zones) {
 		return
 	}
-	e.outState = 1 << valve
+	target := uint16(1) << valve
 	if cfg.Zones[valve-1].Pump {
-		e.outState |= 1
+		target |= 1
 	}
+	e.setOutputsLocked(target, now, cfg)
 }
 
 func (e *Engine) latchLocked() {
@@ -564,5 +673,16 @@ func (e *Engine) continueScheduleLocked(now time.Time, zone int, endAt time.Time
 func (e *Engine) setManualLocked(now time.Time, on bool, zone int) {
 	e.logRunLocked(now)
 	e.run = runState{manual: on, schedID: -1, zone: zone, eventTime: now, adj: adjustments{-1, -1}}
+	e.bumpLocked()
+}
+
+// pauseRunLocked enters a soak pause: the finished chunk is logged, the
+// schedule keeps running with no active zone.
+func (e *Engine) pauseRunLocked(now time.Time) {
+	e.logRunLocked(now)
+	e.run = runState{
+		schedule: true, schedID: e.run.schedID, zone: -1,
+		eventTime: now, adj: e.run.adj,
+	}
 	e.bumpLocked()
 }
