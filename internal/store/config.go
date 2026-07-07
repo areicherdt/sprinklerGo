@@ -88,6 +88,32 @@ func (s *ConfigStore) Update(fn func(*model.Config) error) error {
 	return nil
 }
 
+// ReplaceRaw swaps in a full configuration document (a restored backup),
+// migrating and validating it first. Returns the applied configuration.
+func (s *ConfigStore) ReplaceRaw(raw []byte) (model.Config, error) {
+	data, _, err := migrateRaw(raw, model.ConfigVersion, migrations)
+	if err != nil {
+		return model.Config{}, err
+	}
+	var next model.Config
+	if err := json.Unmarshal(data, &next); err != nil {
+		return model.Config{}, fmt.Errorf("parse backup: %w", err)
+	}
+	if err := next.Validate(); err != nil {
+		return model.Config{}, fmt.Errorf("invalid backup: %w", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := s.cfg
+	s.cfg = next
+	if err := s.save(); err != nil {
+		s.cfg = prev
+		return model.Config{}, fmt.Errorf("save restored config: %w", err)
+	}
+	s.rev.Add(1)
+	return next.Clone(), nil
+}
+
 // save writes the config via a temp file + rename so a crash mid-write can
 // never leave a truncated config behind. Caller must hold the lock.
 func (s *ConfigStore) save() error {

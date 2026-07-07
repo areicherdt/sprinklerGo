@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ const NumOutputs = MaxZones + 1 // pump/master + 15 zones
 
 // ConfigVersion is the current config.json schema version. Older documents
 // are upgraded by the migration chain in the store package.
-const ConfigVersion = 3
+const ConfigVersion = 4
 
 type Settings struct {
 	WebPort    int        `json:"webPort"`
@@ -45,6 +46,15 @@ type Settings struct {
 	// ManualTimerMinutes limits manual zone runs started without an
 	// explicit duration (0 = unlimited, the original's behavior).
 	ManualTimerMinutes int `json:"manualTimerMinutes"`
+	// MQTT integration (Home Assistant discovery included).
+	MQTTEnabled     bool   `json:"mqttEnabled"`
+	MQTTBroker      string `json:"mqttBroker"` // e.g. "tcp://192.168.1.10:1883"
+	MQTTUsername    string `json:"mqttUsername"`
+	MQTTPassword    string `json:"mqttPassword"`
+	MQTTTopicPrefix string `json:"mqttTopicPrefix"`
+	MQTTHADiscovery bool   `json:"mqttHADiscovery"`
+	// WebhookURL receives event notifications as JSON POSTs (empty = off).
+	WebhookURL string `json:"webhookUrl"`
 }
 
 func (s *Settings) Validate() error {
@@ -70,6 +80,20 @@ func (s *Settings) Validate() error {
 	}
 	if s.ManualTimerMinutes < 0 || s.ManualTimerMinutes > 24*60 {
 		return fmt.Errorf("manualTimerMinutes must be 0-1440 (0 = unlimited)")
+	}
+	if s.MQTTEnabled {
+		if s.MQTTBroker == "" {
+			return fmt.Errorf("mqttBroker is required when MQTT is enabled")
+		}
+		if s.MQTTTopicPrefix == "" || strings.ContainsAny(s.MQTTTopicPrefix, "#+/ ") {
+			return fmt.Errorf("mqttTopicPrefix must be a single topic level without wildcards")
+		}
+	}
+	if s.WebhookURL != "" {
+		u, err := url.Parse(s.WebhookURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("webhookUrl must be an absolute http(s) URL")
+		}
 	}
 	switch s.WeatherProvider {
 	case "none":
@@ -175,6 +199,8 @@ func DefaultConfig() Config {
 			RunSchedules:       false,
 			LogRetentionMonths: 24,
 			ManualTimerMinutes: 30,
+			MQTTTopicPrefix:    "sprinklergo",
+			MQTTHADiscovery:    true,
 		},
 	}
 	for i := 0; i < MaxZones; i++ {

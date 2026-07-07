@@ -15,6 +15,7 @@ type migration func(cfg map[string]any) error
 var migrations = []migration{
 	migrateV1AddLogRetention,
 	migrateV2AddManualTimer,
+	migrateV3AddIntegration,
 }
 
 // v1 → v2: introduce settings.logRetentionMonths (default 24; 0 = unlimited).
@@ -37,6 +38,23 @@ func migrateV2AddManualTimer(cfg map[string]any) error {
 	}
 	if _, exists := settings["manualTimerMinutes"]; !exists {
 		settings["manualTimerMinutes"] = 30
+	}
+	return nil
+}
+
+// v3 → v4: introduce the integration settings (MQTT + webhook). Booleans and
+// empty strings default naturally; only the discovery flag and topic prefix
+// need explicit defaults.
+func migrateV3AddIntegration(cfg map[string]any) error {
+	settings, ok := cfg["settings"].(map[string]any)
+	if !ok {
+		return errors.New("config has no settings object")
+	}
+	if _, exists := settings["mqttTopicPrefix"]; !exists {
+		settings["mqttTopicPrefix"] = "sprinklergo"
+	}
+	if _, exists := settings["mqttHADiscovery"]; !exists {
+		settings["mqttHADiscovery"] = true
 	}
 	return nil
 }

@@ -20,6 +20,8 @@ import (
 	"sprinklergo/internal/engine"
 	"sprinklergo/internal/hardware"
 	"sprinklergo/internal/model"
+	"sprinklergo/internal/mqttbridge"
+	"sprinklergo/internal/notify"
 	"sprinklergo/internal/store"
 	"sprinklergo/internal/weather"
 	"sprinklergo/web"
@@ -76,6 +78,11 @@ func run(configPath, dbPath string, portOverride int) error {
 
 	eng := engine.New(cfg, out, logs, wcache.Scale, nil)
 
+	// Events (run finished, errors, …) go out via webhook if configured.
+	webhook := notify.NewWebhook(func() string { return cfg.Snapshot().Settings.WebhookURL })
+	eng.SetEventSink(webhook)
+	wcache.SetEventSink(webhook)
+
 	// applyOutput swaps the hardware backend when output settings change.
 	var outMu sync.Mutex
 	current := out
@@ -105,6 +112,7 @@ func run(configPath, dbPath string, portOverride int) error {
 	defer stop()
 	eng.Start(ctx)
 	go wcache.Run(ctx, time.Hour)
+	go mqttbridge.New(cfg, eng, wcache, version).Run(ctx)
 
 	// Prune the zone log per retention setting, at startup and then daily.
 	go func() {

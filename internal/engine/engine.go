@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"sprinklergo/internal/model"
+	"sprinklergo/internal/notify"
 )
 
 // Schedule ids reported in run state and zone logs.
@@ -89,6 +90,7 @@ type Engine struct {
 	lastDay     int
 	quick       []int // quick-run durations, minutes per zone
 	rev         int64 // bumped on every observable change (SSE fingerprint)
+	sink        notify.Sink
 }
 
 func New(cfg ConfigSource, out Output, logger ZoneLogger, weatherScale func() int, now func() time.Time) *Engine {
@@ -269,6 +271,14 @@ func (e *Engine) Shutdown() {
 	e.latchLocked()
 }
 
+// SetEventSink registers a consumer for operational events (run started/
+// finished, rain-delay skips, output errors). Sinks must not block.
+func (e *Engine) SetEventSink(s notify.Sink) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.sink = s
+}
+
 // Rev returns a counter that increases with every observable change; used
 // by the SSE endpoint as a cheap change fingerprint.
 func (e *Engine) Rev() int64 {
@@ -361,6 +371,12 @@ func (e *Engine) State() State {
 
 func (e *Engine) bumpLocked() { e.rev++ }
 
+func (e *Engine) emitLocked(typ string, data map[string]any) {
+	if e.sink != nil {
+		e.sink.Emit(notify.Event{Type: typ, Time: e.now(), Data: data})
+	}
+}
+
 // rebuildPendingLocked ports ReloadEvents' start-list construction: one
 // evStartSched per due schedule start time of the current day. With
 // includePast=false, start times at or before now are skipped. The active
@@ -428,6 +444,9 @@ func (e *Engine) startScheduleLocked(idx int, quick bool, now time.Time, cfg *mo
 	e.logRunLocked(now)
 	e.run = runState{schedule: true, schedID: schedID, zone: -1, eventTime: now, adj: adj}
 	e.bumpLocked()
+	e.emitLocked(notify.EventRunStarted, map[string]any{
+		"scheduleId": schedID, "seasonal": adj.seasonal, "weather": adj.weather,
+	})
 }
 
 // processLocked ports ProcessEvents. Pending starts are handled first so a
@@ -443,6 +462,7 @@ func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
 			e.pending[i].done = true
 			e.bumpLocked()
 			slog.Info("schedule start suppressed by rain delay", "schedule", e.pending[i].sched)
+			e.emitLocked(notify.EventRainDelaySkip, map[string]any{"scheduleId": e.pending[i].sched})
 			continue
 		}
 		if e.run.schedule {
@@ -466,15 +486,19 @@ func (e *Engine) processLocked(now time.Time, cfg *model.Config) {
 			e.continueScheduleLocked(now, e.running[i].zone, e.running[i].endAt)
 			e.running[i].done = true
 		case evAllOff:
+			finished := e.run.schedID
 			e.outState = 0
 			e.clearRunLocked(now)
 			e.running[i].done = true
+			e.emitLocked(notify.EventRunFinished, map[string]any{"scheduleId": finished})
 		}
 	}
 	// Manual timer expiry.
 	if e.run.manual && !e.run.endAt.IsZero() && !now.Before(e.run.endAt) {
+		zone := e.run.zone - 1
 		e.outState = 0
 		e.setManualLocked(now, false, -1)
+		e.emitLocked(notify.EventRunFinished, map[string]any{"scheduleId": ScheduleManual, "zoneId": zone})
 	}
 }
 
@@ -497,6 +521,7 @@ func (e *Engine) latchLocked() {
 	if e.out != nil {
 		if err := e.out.Apply(e.outState); err != nil {
 			slog.Error("output apply failed", "state", e.outState, "err", err)
+			e.emitLocked(notify.EventOutputError, map[string]any{"error": err.Error()})
 			return // keep prevOut stale so the next tick retries
 		}
 	}

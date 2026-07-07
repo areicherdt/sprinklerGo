@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, Settings as SettingsT, WeatherCheck } from '../api'
 import { useToast } from '../components'
 import { fmtSeconds } from '../util'
@@ -10,6 +10,7 @@ export default function Settings() {
   const [notice, setNotice] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
   const [check, setCheck] = useState<WeatherCheck | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
 
   useEffect(() => {
@@ -172,6 +173,130 @@ export default function Settings() {
         <p className="muted small">
           Die Wetter-Anpassung skaliert Programme mit aktivierter „Wetter-Anpassung" auf 0–200 %
           anhand von Temperatur, Luftfeuchte und Regen des Vortags.
+        </p>
+      </div>
+
+      <div className="card">
+        <h2>Integration</h2>
+        <div className="row spread" style={{ marginBottom: 10 }}>
+          <span>MQTT (inkl. Home-Assistant-Discovery)</span>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={form.mqttEnabled}
+              onChange={(e) => patch({ mqttEnabled: e.target.checked })}
+            />
+            <span className="slider" />
+          </label>
+        </div>
+        {form.mqttEnabled && (
+          <>
+            <label className="field">
+              <span>Broker (z. B. „tcp://192.168.1.10:1883&quot;)</span>
+              <input
+                type="text"
+                value={form.mqttBroker}
+                style={{ width: '100%', maxWidth: 380 }}
+                onChange={(e) => patch({ mqttBroker: e.target.value })}
+              />
+            </label>
+            <div className="row">
+              <label className="field" style={{ flex: 1, minWidth: 160 }}>
+                <span>Benutzername</span>
+                <input
+                  type="text"
+                  value={form.mqttUsername}
+                  style={{ width: '100%' }}
+                  onChange={(e) => patch({ mqttUsername: e.target.value })}
+                />
+              </label>
+              <label className="field" style={{ flex: 1, minWidth: 160 }}>
+                <span>Passwort</span>
+                <input
+                  type="password"
+                  value={form.mqttPassword}
+                  style={{ width: '100%' }}
+                  onChange={(e) => patch({ mqttPassword: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="row">
+              <label className="field">
+                <span>Topic-Präfix</span>
+                <input
+                  type="text"
+                  value={form.mqttTopicPrefix}
+                  onChange={(e) => patch({ mqttTopicPrefix: e.target.value })}
+                />
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.mqttHADiscovery}
+                  onChange={(e) => patch({ mqttHADiscovery: e.target.checked })}
+                />
+                Home-Assistant-Discovery
+              </label>
+            </div>
+            <p className="muted small">
+              Zonen erscheinen in Home Assistant automatisch als Schalter, dazu Automatik,
+              Regenpause, Stopp-Taste und Sensoren für aktive Zone und Wetter-Skalierung.
+            </p>
+          </>
+        )}
+        <label className="field" style={{ marginTop: 8 }}>
+          <span>Webhook-URL für Ereignisse (leer = aus)</span>
+          <input
+            type="text"
+            value={form.webhookUrl}
+            placeholder="https://…"
+            style={{ width: '100%', maxWidth: 420 }}
+            onChange={(e) => patch({ webhookUrl: e.target.value })}
+          />
+        </label>
+        <p className="muted small">
+          Sendet JSON-POSTs bei „Lauf gestartet/beendet&quot;, Regenpausen-Übersprüngen sowie
+          Ausgangs- und Wetterfehlern — z. B. an ntfy oder Node-RED.
+        </p>
+      </div>
+
+      <div className="card">
+        <h2>Sicherung</h2>
+        <div className="row">
+          <a href="/api/backup" download>
+            <button>Konfiguration exportieren</button>
+          </a>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (!file) return
+              try {
+                const res = await api.restore(await file.text())
+                toast(
+                  res.restartRequired
+                    ? 'Wiederhergestellt — neuer Web-Port gilt nach Neustart.'
+                    : 'Konfiguration wiederhergestellt.',
+                )
+                const s = await api.settings()
+                setForm(s)
+                setPins(s.gpioPins.join(', '))
+              } catch (err) {
+                toast((err as Error).message, 'error')
+              }
+            }}
+          />
+          <button type="button" onClick={() => fileRef.current?.click()}>
+            Sicherung importieren…
+          </button>
+        </div>
+        <p className="muted small">
+          Der Export enthält Zonen, Programme und alle Einstellungen (inkl. Zugangsdaten). Beim
+          Import wird eine ältere Sicherung automatisch migriert; laufende Bewässerung stoppt.
         </p>
       </div>
 

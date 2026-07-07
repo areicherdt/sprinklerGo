@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -374,6 +375,47 @@ func TestSSEStreamsState(t *testing.T) {
 	}
 	if st["mode"] != "idle" || st["version"] != "test" {
 		t.Errorf("initial SSE state wrong: %+v", st)
+	}
+}
+
+func TestBackupAndRestore(t *testing.T) {
+	e := newEnv(t)
+	// Change something, back it up.
+	e.call(t, "PUT", "/api/zones/2", map[string]any{"name": "Backup-Zone", "enabled": true, "pump": false})
+	resp, err := http.Get(e.ts.URL + "/api/backup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
+		t.Errorf("content disposition %q", cd)
+	}
+
+	// Break the config, then restore the backup.
+	e.call(t, "PUT", "/api/zones/2", map[string]any{"name": "Kaputt", "enabled": false, "pump": true})
+	req, _ := http.NewRequest("POST", e.ts.URL+"/api/restore", bytes.NewReader(backup))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("restore status %d", res.StatusCode)
+	}
+	if got := e.cfg.Snapshot().Zones[2].Name; got != "Backup-Zone" {
+		t.Errorf("restore did not apply: zone name %q", got)
+	}
+
+	// Garbage is rejected and leaves the config untouched.
+	req, _ = http.NewRequest("POST", e.ts.URL+"/api/restore", strings.NewReader(`{"version":1,"zones":[]}`))
+	res, _ = http.DefaultClient.Do(req)
+	res.Body.Close()
+	if res.StatusCode != 400 {
+		t.Errorf("invalid restore: want 400, got %d", res.StatusCode)
+	}
+	if got := e.cfg.Snapshot().Zones[2].Name; got != "Backup-Zone" {
+		t.Errorf("failed restore must not change config: %q", got)
 	}
 }
 

@@ -90,6 +90,13 @@ export interface Settings {
   runSchedules: boolean
   logRetentionMonths: number
   manualTimerMinutes: number
+  mqttEnabled: boolean
+  mqttBroker: string
+  mqttUsername: string
+  mqttPassword: string
+  mqttTopicPrefix: string
+  mqttHADiscovery: boolean
+  webhookUrl: string
 }
 
 export interface SaveSettingsResult {
@@ -173,6 +180,12 @@ export const api = {
 
   settings: () => req<Settings>('GET', '/api/settings'),
   saveSettings: (s: Settings) => req<SaveSettingsResult>('PUT', '/api/settings', s),
+  restore: (backup: string) =>
+    fetch('/api/restore', { method: 'POST', body: backup }).then(async (r) => {
+      const data = (await r.json().catch(() => ({}))) as SaveSettingsResult & { error?: string }
+      if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
+      return data
+    }),
   weatherCheck: () => req<WeatherCheck>('GET', '/api/weather/check'),
 
   logEntries: (start: number, end: number) =>

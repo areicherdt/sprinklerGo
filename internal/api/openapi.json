@@ -238,6 +238,47 @@
         }
       }
     },
+    "/api/backup": {
+      "get": {
+        "summary": "Konfiguration als Datei exportieren",
+        "operationId": "getBackup",
+        "responses": {
+          "200": {
+            "description": "config.json als Download (Content-Disposition: attachment)",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    },
+    "/api/restore": {
+      "post": {
+        "summary": "Konfiguration aus einer Sicherung wiederherstellen",
+        "description": "Ältere Sicherungen werden automatisch migriert und validiert; eine laufende Bewässerung stoppt.",
+        "operationId": "postRestore",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Wiederhergestellt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "restartRequired": { "type": "boolean" },
+                    "outputError": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/stop": {
       "post": {
         "summary": "Alles stoppen (Zonen aus, Tagesplan neu aufbauen)",
@@ -519,7 +560,14 @@
           "clock24h": { "type": "boolean" },
           "runSchedules": { "type": "boolean" },
           "logRetentionMonths": { "type": "integer", "minimum": 0, "maximum": 120, "description": "0 = unbegrenzt" },
-          "manualTimerMinutes": { "type": "integer", "minimum": 0, "maximum": 1440, "description": "Default-Timer für manuelle Läufe; 0 = unbegrenzt" }
+          "manualTimerMinutes": { "type": "integer", "minimum": 0, "maximum": 1440, "description": "Default-Timer für manuelle Läufe; 0 = unbegrenzt" },
+          "mqttEnabled": { "type": "boolean" },
+          "mqttBroker": { "type": "string", "description": "z. B. tcp://192.168.1.10:1883" },
+          "mqttUsername": { "type": "string" },
+          "mqttPassword": { "type": "string" },
+          "mqttTopicPrefix": { "type": "string", "description": "eine Topic-Ebene ohne Wildcards" },
+          "mqttHADiscovery": { "type": "boolean", "description": "Home-Assistant-Discovery-Topics publizieren" },
+          "webhookUrl": { "type": "string", "description": "JSON-POST-Ziel für Ereignisse; leer = aus" }
         }
       },
       "WeatherCheck": {

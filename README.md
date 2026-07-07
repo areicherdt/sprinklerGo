@@ -18,6 +18,9 @@ Die Modernisierung von Workflow, UI und Prozessen (M7–M12) ist in
 - Manuellbetrieb, Schnellstart (Programm sofort oder Ad-hoc-Laufzeiten)
 - Verlauf in SQLite mit Tabellen- und Diagramm-Ansicht
 - Wetter-Anpassung über **Open-Meteo** (kostenlos, kein API-Key) mit Diagnose-Seite
+- Regenpause, Timer für manuelle Läufe, Live-Updates per SSE
+- **MQTT mit Home-Assistant-Discovery** (Zonen als Schalter, Automatik, Regenpause,
+  Stopp-Taste, Sensoren), Webhook-Benachrichtigungen, Backup/Restore im UI
 - Hardware-Backends: `none` (Test), externes Skript (kompatibel zum Original),
   GPIO direkt aktiv-high/-low (Linux gpiochip)
 - REST-API (`/api/...`) + eingebettetes React-Frontend (deutsch, hell/dunkel)
@@ -91,6 +94,17 @@ CI (GitHub Actions) prüft bei jedem Push: Frontend-Check und -Build,
 `go vet`, `golangci-lint`, alle Tests und den arm64-Cross-Compile. Ein
 `v*`-Tag baut Release-Binaries (linux/arm64 + amd64) und veröffentlicht sie
 als GitHub-Release.
+
+## Home Assistant anbinden
+
+1. Einstellungen → Integration → MQTT aktivieren, Broker eintragen
+   (z. B. `tcp://homeassistant.local:1883`), speichern.
+2. Bei aktivierter Discovery erscheint das Gerät „sprinklerGo" automatisch in
+   Home Assistant: jede aktive Zone als Schalter (Einschalten startet mit dem
+   manuellen Timer), dazu Automatik- und Regenpause-Schalter, Stopp-Taste und
+   Sensoren für aktive Zone und Wetter-Skalierung.
+3. Topics liegen unter dem konfigurierten Präfix (`sprinklergo/...`),
+   Kommandos auf `.../set`, Verfügbarkeit auf `sprinklergo/availability`.
 
 ## API-Kurzreferenz
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"sprinklergo/internal/model"
+	"sprinklergo/internal/notify"
 )
 
 // Cache decouples weather fetching from the scheduling engine: a background
@@ -20,6 +21,14 @@ type Cache struct {
 	vals      ReturnVals
 	scale     int
 	fetchedAt time.Time
+	sink      notify.Sink
+}
+
+// SetEventSink registers a consumer for weather fetch failures.
+func (c *Cache) SetEventSink(s notify.Sink) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sink = s
 }
 
 // CacheInfo is a snapshot of the cached weather state.
@@ -66,7 +75,15 @@ func (c *Cache) Refresh(ctx context.Context) CacheInfo {
 	c.vals = vals
 	c.scale = Scale(vals)
 	c.fetchedAt = time.Now()
+	sink := c.sink
 	c.mu.Unlock()
+	if sink != nil && p.Name() != "none" && !vals.Valid {
+		sink.Emit(notify.Event{
+			Type: notify.EventWeatherError,
+			Time: time.Now(),
+			Data: map[string]any{"provider": p.Name(), "error": vals.Error},
+		})
+	}
 	return c.Snapshot()
 }
 

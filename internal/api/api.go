@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -61,6 +62,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/logs", s.getLogs)
 	mux.HandleFunc("PUT /api/rain-delay", s.putRainDelay)
 	mux.HandleFunc("GET /api/events", s.getEvents)
+	mux.HandleFunc("GET /api/backup", s.getBackup)
+	mux.HandleFunc("POST /api/restore", s.postRestore)
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openapiSpec)
@@ -562,6 +565,52 @@ func equalInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+// ---- backup & restore ----
+
+func (s *Server) getBackup(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg.Snapshot()
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=\"sprinklergo-config-%s.json\"", time.Now().Format("2006-01-02")))
+	w.Write(data)
+}
+
+func (s *Server) postRestore(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "read backup: "+err.Error())
+		return
+	}
+	prev := s.cfg.Snapshot().Settings
+	cfg, err := s.cfg.ReplaceRaw(raw)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// A restore replaces everything — stop hard and rebuild from scratch.
+	s.eng.StopAll()
+	if s.applyOutput != nil {
+		if err := s.applyOutput(cfg.Settings); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "outputError": err.Error()})
+			return
+		}
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		s.weather.Refresh(ctx)
+	}()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":              true,
+		"restartRequired": prev.WebPort != cfg.Settings.WebPort,
+	})
 }
 
 // ---- weather ----
