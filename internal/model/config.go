@@ -15,7 +15,23 @@ const (
 	OutputScript  OutputType = "script"
 	OutputGPIOPos OutputType = "gpio+"
 	OutputGPIONeg OutputType = "gpio-"
+	// OutputGreenIQ drives a GreenIQ Gen2 board: a fixed, active-high GPIO
+	// pin map for the master valve plus 6 zones (cable 1), matching the
+	// original's compile-time GREENIQ option.
+	OutputGreenIQ OutputType = "greeniq"
 )
+
+// GreenIQZones is the number of zones the GreenIQ Gen2 board wires (cable 1).
+const GreenIQZones = 6
+
+// GreenIQPins is the BCM pin map for the GreenIQ Gen2 board: index 0 is the
+// master/pump valve, indices 1..6 are zones 1..6. Translated from the
+// original's wiringPi map {5, 7, 0, 1, 2, 3, 4} (core.cpp, #ifdef GREENIQ).
+// The board's valves are Direct Positive (active high).
+func GreenIQPins() []int {
+	// wiringPi 5,7,0,1,2,3,4 -> BCM 24,4,17,18,27,22,23
+	return []int{24, 4, 17, 18, 27, 22, 23}
+}
 
 const NumOutputs = MaxZones + 1 // pump/master + 15 zones
 
@@ -75,9 +91,9 @@ func (s *Settings) Validate() error {
 		return fmt.Errorf("webPort must be 1-65535")
 	}
 	switch s.OutputType {
-	case OutputNone, OutputScript, OutputGPIOPos, OutputGPIONeg:
+	case OutputNone, OutputScript, OutputGPIOPos, OutputGPIONeg, OutputGreenIQ:
 	default:
-		return fmt.Errorf("outputType must be one of none, script, gpio+, gpio-")
+		return fmt.Errorf("outputType must be one of none, script, gpio+, gpio-, greeniq")
 	}
 	if s.OutputType == OutputScript && s.ScriptPath == "" {
 		return fmt.Errorf("scriptPath is required for outputType script")

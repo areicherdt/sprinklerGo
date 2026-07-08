@@ -29,7 +29,7 @@ Die Modernisierung von Workflow, UI und Prozessen (M7–M12) ist in
 - Optionaler Login mit API-Tokens; als PWA auf dem Homescreen installierbar
 - Zweisprachige Oberfläche (Deutsch/English), umschaltbar in den Einstellungen
 - Hardware-Backends: `none` (Test), externes Skript (kompatibel zum Original),
-  GPIO direkt aktiv-high/-low (Linux gpiochip)
+  GPIO direkt aktiv-high/-low (Linux gpiochip), **GreenIQ Gen2** (feste Pin-Map)
 - REST-API (`/api/...`) + eingebettetes React-Frontend (deutsch, hell/dunkel)
 
 ## Bauen
@@ -76,6 +76,14 @@ sudo systemctl enable --now sprinklerd
 Konfiguration und Log-Datenbank liegen dann unter `/var/lib/sprinklerd/`.
 Für GPIO-Ausgänge braucht der Dienst Zugriff auf `/dev/gpiochip0` — die Unit
 hängt den Nutzer dafür an die Gruppe `gpio`. Logs: `journalctl -u sprinklerd -f`.
+
+### GreenIQ Gen2
+
+Einfach als Ausgabetyp „GreenIQ Gen2" wählen — die Pin-Belegung (Masterventil
+plus 6 Zonen auf Kabel 1, Direct Positive/aktiv-high) ist fest hinterlegt und
+entspricht dem `#define GREENIQ` des Originals; es müssen keine GPIO-Pins von
+Hand eingetragen werden. Verdrahtet sind Zone 1–6. Sensoren auf Kabel 2 werden
+wie im Original nicht unterstützt.
 
 ## Wetter-Anpassung einrichten
 

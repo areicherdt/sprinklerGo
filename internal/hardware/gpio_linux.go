@@ -19,15 +19,11 @@ type gpioOutput struct {
 }
 
 func newGPIO(pins []int, activeHigh bool) (Output, error) {
-	if len(pins) != model.NumOutputs {
-		return nil, fmt.Errorf("need %d GPIO pins, got %d", model.NumOutputs, len(pins))
+	if len(pins) < 1 || len(pins) > model.NumOutputs {
+		return nil, fmt.Errorf("need 1-%d GPIO pins, got %d", model.NumOutputs, len(pins))
 	}
-	initial := make([]int, len(pins))
-	if !activeHigh {
-		for i := range initial {
-			initial[i] = 1
-		}
-	}
+	// Initial level = off: low for active-high, high for active-low.
+	initial := gpioValues(0, len(pins), activeHigh)
 	lines, err := gpiocdev.RequestLines("gpiochip0", pins,
 		gpiocdev.AsOutput(initial...), gpiocdev.WithConsumer("sprinklergo"))
 	if err != nil {
@@ -37,14 +33,7 @@ func newGPIO(pins []int, activeHigh bool) (Output, error) {
 }
 
 func (g *gpioOutput) Apply(state uint16) error {
-	values := make([]int, g.numPins)
-	for i := range values {
-		on := state&(1<<i) != 0
-		if on == g.activeHigh {
-			values[i] = 1
-		}
-	}
-	return g.lines.SetValues(values)
+	return g.lines.SetValues(gpioValues(state, g.numPins, g.activeHigh))
 }
 
 func (g *gpioOutput) Close() error {

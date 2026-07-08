@@ -30,6 +30,16 @@ func TestForSettings(t *testing.T) {
 	}
 }
 
+func TestGreenIQSettingsValid(t *testing.T) {
+	s := model.DefaultConfig().Settings
+	s.OutputType = model.OutputGreenIQ
+	// GreenIQ uses the fixed internal pin map, so no scriptPath or custom
+	// gpioPins are required beyond the defaults.
+	if err := s.Validate(); err != nil {
+		t.Errorf("greeniq settings rejected: %v", err)
+	}
+}
+
 func TestMock(t *testing.T) {
 	m := NewMock()
 	if err := m.Apply(0b110); err != nil {

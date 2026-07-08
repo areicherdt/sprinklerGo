@@ -281,8 +281,10 @@ export default function Settings() {
             <option value="script">{t('set.outputScript')}</option>
             <option value="gpio+">{t('set.outputGpioHigh')}</option>
             <option value="gpio-">{t('set.outputGpioLow')}</option>
+            <option value="greeniq">{t('set.outputGreenIQ')}</option>
           </select>
         </label>
+        {form.outputType === 'greeniq' && <p className="muted small">{t('set.greeniqHint')}</p>}
         {form.outputType === 'script' && (
           <label className="field">
             <span>{t('set.scriptPath')}</span>

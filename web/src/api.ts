@@ -82,7 +82,7 @@ export type SchedulePayload = Omit<Schedule, 'id' | 'nextRun'>
 
 export interface Settings {
   webPort: number
-  outputType: 'none' | 'script' | 'gpio+' | 'gpio-'
+  outputType: 'none' | 'script' | 'gpio+' | 'gpio-' | 'greeniq'
   scriptPath: string
   gpioPins: number[]
   seasonalAdjust: number

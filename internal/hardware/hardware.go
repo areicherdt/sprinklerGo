@@ -25,6 +25,9 @@ func ForSettings(s model.Settings) (Output, error) {
 		return newGPIO(s.GPIOPins, true)
 	case model.OutputGPIONeg:
 		return newGPIO(s.GPIOPins, false)
+	case model.OutputGreenIQ:
+		// Fixed active-high pin map for the master valve + 6 zones.
+		return newGPIO(model.GreenIQPins(), true)
 	default:
 		return nil, fmt.Errorf("unknown output type %q", s.OutputType)
 	}

@@ -212,6 +212,9 @@ const de = {
   'set.outputScript': 'Externes Skript',
   'set.outputGpioHigh': 'GPIO direkt (aktiv high)',
   'set.outputGpioLow': 'GPIO direkt (aktiv low)',
+  'set.outputGreenIQ': 'GreenIQ Gen2',
+  'set.greeniqHint':
+    'Feste Pin-Belegung für das GreenIQ-Gen2-Board (Master + 6 Zonen auf Kabel 1, aktiv high). Keine GPIO-Pins nötig; nur Zone 1–6 sind verdrahtet.',
   'set.scriptPath': 'Skript-Pfad (aufgerufen als: Pfad <Ausgang> <0|1>)',
   'set.gpioPins': 'GPIO-Pins (BCM, 16 Werte: Pumpe + 15 Zonen)',
   'set.gpioPinsError': 'GPIO-Pins: bitte 16 Zahlen, durch Kommas getrennt.',
@@ -486,6 +489,9 @@ const en: Record<MsgKey, string> = {
   'set.outputScript': 'External script',
   'set.outputGpioHigh': 'GPIO direct (active high)',
   'set.outputGpioLow': 'GPIO direct (active low)',
+  'set.outputGreenIQ': 'GreenIQ Gen2',
+  'set.greeniqHint':
+    'Fixed pin map for the GreenIQ Gen2 board (master + 6 zones on cable 1, active high). No GPIO pins needed; only zones 1–6 are wired.',
   'set.scriptPath': 'Script path (called as: path <output> <0|1>)',
   'set.gpioPins': 'GPIO pins (BCM, 16 values: pump + 15 zones)',
   'set.gpioPinsError': 'GPIO pins: please provide 16 comma-separated numbers.',
