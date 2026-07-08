@@ -1,26 +1,14 @@
 import { useEffect, useState } from 'react'
-
-export const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa']
-export const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mär',
-  'Apr',
-  'Mai',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Okt',
-  'Nov',
-  'Dez',
-]
+import { locale, t } from './i18n'
 
 // Global clock format, fed from the server state (settings.clock24h) by
 // useLiveState. Components re-render on state changes anyway.
 let clock24 = true
 export function setClockFormat(is24: boolean) {
   clock24 = is24
+}
+export function isClock24(): boolean {
+  return clock24
 }
 
 /** minutes since midnight -> "06:30" (or "6:30 AM" in 12h mode) */
@@ -106,27 +94,28 @@ export function fmtSeconds(total: number): string {
 }
 
 export function fmtDate(unixSeconds: number): string {
-  return new Date(unixSeconds * 1000).toLocaleString('de-DE', {
+  return new Date(unixSeconds * 1000).toLocaleString(locale(), {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: !isClock24(),
   })
 }
 
 export function fmtNextRun(nr: { date: string; inDays: number; times: number[] } | null): string {
-  if (!nr) return 'kein Lauf geplant'
+  if (!nr) return t('label.noRunPlanned')
   const times = nr.times.map(fmtTime).join(', ')
-  if (nr.inDays === 0) return `Heute ${times}`
-  if (nr.inDays === 1) return `Morgen ${times}`
-  return `In ${nr.inDays} Tagen (${nr.date}) ${times}`
+  if (nr.inDays === 0) return `${t('time.today')} ${times}`
+  if (nr.inDays === 1) return `${t('time.tomorrow')} ${times}`
+  return `${t('time.inDays', { n: nr.inDays, date: nr.date })} ${times}`
 }
 
 export function scheduleLabel(id: number, names: Map<number, string>): string {
-  if (id === -1) return 'Manuell'
-  if (id === 99) return 'Schnellstart'
-  return names.get(id) ?? `Programm ${id + 1}`
+  if (id === -1) return t('label.manual')
+  if (id === 99) return t('label.quickRun')
+  return names.get(id) ?? `${t('dash.program')} ${id + 1}`
 }
 
 /** Poll a fetcher on an interval; returns latest value and a refresh trigger. */

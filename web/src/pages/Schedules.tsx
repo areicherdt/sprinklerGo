@@ -2,14 +2,16 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Schedule, api } from '../api'
 import { ConfirmDialog, useToast } from '../components'
-import { WEEKDAYS, fmtNextRun, fmtTime, usePoll } from '../util'
+import { t, weekdays } from '../i18n'
+import { fmtNextRun, fmtTime, usePoll } from '../util'
 
 function daysLabel(s: Schedule): string {
-  if (s.kind === 'interval') return `alle ${s.interval} Tage`
-  const days = WEEKDAYS.filter((_, i) => s.days[i])
-  const label = days.length === 7 ? 'täglich' : days.join(', ')
-  if (s.restriction === 1) return `${label} (ungerade Tage)`
-  if (s.restriction === 2) return `${label} (gerade Tage)`
+  if (s.kind === 'interval') return t('sched.everyNDays', { n: s.interval })
+  const wd = weekdays()
+  const days = wd.filter((_, i) => s.days[i])
+  const label = days.length === 7 ? t('sched.daily') : days.join(', ')
+  if (s.restriction === 1) return t('sched.oddDays', { days: label })
+  if (s.restriction === 2) return t('sched.evenDays', { days: label })
   return label
 }
 
@@ -23,7 +25,7 @@ export default function Schedules() {
     if (!toDelete) return
     try {
       await api.deleteSchedule(toDelete.id)
-      toast(`Programm „${toDelete.name}" gelöscht.`)
+      toast(t('sched.deleted', { name: toDelete.name }))
     } catch (e) {
       toast((e as Error).message, 'error')
     }
@@ -35,7 +37,7 @@ export default function Schedules() {
     try {
       const full = await api.schedule(s.id)
       await api.createSchedule({
-        name: `${full.name} (Kopie)`,
+        name: `${full.name}${t('sched.copySuffix')}`,
         enabled: false,
         kind: full.kind,
         days: full.days,
@@ -47,7 +49,7 @@ export default function Schedules() {
         cycleMaxMinutes: full.cycleMaxMinutes,
         soakMinutes: full.soakMinutes,
       })
-      toast(`Programm „${s.name}" dupliziert (Kopie ist deaktiviert).`)
+      toast(t('sched.duplicated', { name: s.name }))
       refresh()
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -57,7 +59,7 @@ export default function Schedules() {
   const runNow = async (s: Schedule) => {
     try {
       await api.quickRunSchedule(s.id)
-      toast(`Programm „${s.name}" gestartet.`)
+      toast(t('sched.started', { name: s.name }))
       nav('/')
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -67,18 +69,19 @@ export default function Schedules() {
   return (
     <>
       <div className="row spread">
-        <h1>Programme</h1>
+        <h1>{t('sched.title')}</h1>
         <Link to="/schedules/new">
-          <button className="primary">Neues Programm</button>
+          <button className="primary">{t('sched.new')}</button>
         </Link>
       </div>
-      {error && <div className="banner error">Keine Verbindung zum Server: {error}</div>}
+      {error && <div className="banner error">{t('common.noConnection', { msg: error })}</div>}
 
       {data && data.schedules.length === 0 && (
         <div className="card">
           <p className="muted">
-            Noch keine Programme angelegt. <Link to="/schedules/new">Jetzt das erste anlegen</Link>{' '}
-            — oder unter <Link to="/quickrun">Schnellstart</Link> direkt bewässern.
+            {t('sched.noneYet')} <Link to="/schedules/new">{t('sched.createFirst')}</Link>{' '}
+            {t('sched.orQuickRun', { link: '' })}
+            <Link to="/quickrun">{t('nav.quickrun')}</Link>.
           </p>
         </div>
       )}
@@ -90,24 +93,24 @@ export default function Schedules() {
               <div className="row">
                 <h2 style={{ margin: 0 }}>{s.name}</h2>
                 <span className={`pill ${s.enabled ? 'on' : 'off'}`}>
-                  {s.enabled ? 'aktiv' : 'aus'}
+                  {s.enabled ? t('sched.activePill') : t('sched.offPill')}
                 </span>
-                {s.weatherAdjust && <span className="pill">Wetter-Anpassung</span>}
+                {s.weatherAdjust && <span className="pill">{t('sched.weatherPill')}</span>}
               </div>
               <p className="muted small" style={{ margin: '6px 0 0' }}>
-                {daysLabel(s)} · Start: {s.startTimes.map(fmtTime).join(', ') || '—'}
+                {daysLabel(s)} · {t('sched.start')} {s.startTimes.map(fmtTime).join(', ') || '—'}
                 <br />
-                Nächster Lauf: {fmtNextRun(s.nextRun)}
+                {t('sched.nextRun')} {fmtNextRun(s.nextRun)}
               </p>
             </div>
             <div className="row">
-              <button onClick={() => runNow(s)}>Jetzt starten</button>
+              <button onClick={() => runNow(s)}>{t('sched.runNow')}</button>
               <Link to={`/schedules/${s.id}`}>
-                <button>Bearbeiten</button>
+                <button>{t('common.edit')}</button>
               </Link>
-              <button onClick={() => duplicate(s)}>Duplizieren</button>
+              <button onClick={() => duplicate(s)}>{t('common.duplicate')}</button>
               <button className="danger" onClick={() => setToDelete(s)}>
-                Löschen
+                {t('common.delete')}
               </button>
             </div>
           </div>
@@ -116,8 +119,9 @@ export default function Schedules() {
 
       <ConfirmDialog
         open={toDelete !== null}
-        title="Programm löschen?"
-        text={`„${toDelete?.name}" wird endgültig gelöscht. Bereits protokollierte Läufe bleiben im Verlauf erhalten.`}
+        title={t('sched.confirmTitle')}
+        text={t('sched.confirmText', { name: toDelete?.name ?? '' })}
+        confirmLabel={t('common.delete')}
         onConfirm={remove}
         onCancel={() => setToDelete(null)}
       />

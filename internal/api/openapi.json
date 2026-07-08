@@ -715,6 +715,7 @@
           "apiSecret": { "type": "string" },
           "location": { "type": "string", "description": "\"Breitengrad,Längengrad\" bei openmeteo" },
           "clock24h": { "type": "boolean" },
+          "language": { "type": "string", "enum": ["de", "en"], "description": "UI- und HA-Entitäten-Sprache" },
           "runSchedules": { "type": "boolean" },
           "logRetentionMonths": { "type": "integer", "minimum": 0, "maximum": 120, "description": "0 = unbegrenzt" },
           "manualTimerMinutes": { "type": "integer", "minimum": 0, "maximum": 1440, "description": "Default-Timer für manuelle Läufe; 0 = unbegrenzt" },

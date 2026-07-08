@@ -38,6 +38,7 @@ export interface StateDTO {
   scheduleCount: number
   rainDelayUntil: number
   clock24h: boolean
+  language: string
   zonesOn: boolean[]
   pumpOn: boolean
   planned: PlannedStart[]
@@ -94,6 +95,7 @@ export interface Settings {
   apiSecret: string
   location: string
   clock24h: boolean
+  language: 'de' | 'en'
   runSchedules: boolean
   logRetentionMonths: number
   manualTimerMinutes: number
@@ -155,6 +157,7 @@ export interface AuthStatus {
   enabled: boolean
   loggedIn: boolean
   hasPassword: boolean
+  language: string
   tokens?: { name: string; createdAt: number }[]
 }
 

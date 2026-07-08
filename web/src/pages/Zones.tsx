@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Zone, api } from '../api'
 import { useToast } from '../components'
+import { t } from '../i18n'
 import { useLiveState } from '../live'
 import { usePoll } from '../util'
 
@@ -27,7 +28,7 @@ export default function Zones() {
         return next
       })
       refresh()
-      toast('Zone gespeichert.')
+      toast(t('zones.saved'))
     } catch (e) {
       toast((e as Error).message, 'error')
     }
@@ -36,7 +37,7 @@ export default function Zones() {
   const manual = async (id: number, on: boolean) => {
     try {
       await api.manual(id, on)
-      toast(on ? 'Zone gestartet.' : 'Zone gestoppt.')
+      toast(on ? t('zones.started') : t('zones.stopped'))
     } catch (e) {
       toast((e as Error).message, 'error')
     }
@@ -49,8 +50,8 @@ export default function Zones() {
 
   return (
     <>
-      <h1>Zonen</h1>
-      {error && <div className="banner error">Keine Verbindung zum Server: {error}</div>}
+      <h1>{t('zones.title')}</h1>
+      {error && <div className="banner error">{t('common.noConnection', { msg: error })}</div>}
       <div className="card">
         {data?.zones.map((z) => {
           const e = edit[z.id] ?? z
@@ -59,13 +60,13 @@ export default function Zones() {
             <div className="zone-row" key={z.id}>
               <span className={`pill ${on ? 'run' : z.enabled ? 'on' : 'off'}`}>
                 <span className="dot" />
-                {on ? 'läuft' : z.enabled ? 'aktiv' : 'aus'}
+                {on ? t('zones.running') : z.enabled ? t('zones.active') : t('zones.off')}
               </span>
               <div className="name">
                 <input
                   type="text"
                   value={e.name}
-                  aria-label={`Name Zone ${z.id + 1}`}
+                  aria-label={t('zones.nameAria', { n: z.id + 1 })}
                   onChange={(ev) => change(z, { name: ev.target.value })}
                 />
               </div>
@@ -75,22 +76,22 @@ export default function Zones() {
                   checked={e.enabled}
                   onChange={(ev) => change(z, { enabled: ev.target.checked })}
                 />
-                aktiv
+                {t('zones.active')}
               </label>
-              <label className="checkbox" title="Pumpe/Hauptventil mitschalten">
+              <label className="checkbox" title={t('zones.pumpTitle')}>
                 <input
                   type="checkbox"
                   checked={e.pump}
                   onChange={(ev) => change(z, { pump: ev.target.checked })}
                 />
-                Pumpe
+                {t('zones.pump')}
               </label>
               <button disabled={!dirty(e)} onClick={() => save(z.id)}>
-                Speichern
+                {t('common.save')}
               </button>
               {on ? (
                 <button className="danger" onClick={() => manual(z.id, false)}>
-                  Stopp
+                  {t('common.stop')}
                 </button>
               ) : (
                 <button
@@ -98,18 +99,14 @@ export default function Zones() {
                   disabled={!z.enabled}
                   onClick={() => manual(z.id, true)}
                 >
-                  Start
+                  {t('common.start')}
                 </button>
               )}
             </div>
           )
         })}
       </div>
-      <p className="muted small">
-        Manuelle Läufe stoppen automatisch nach dem eingestellten Timer (Einstellungen → System, 0 =
-        unbegrenzt). Es läuft immer nur eine Zone gleichzeitig; „Pumpe&quot; schaltet das
-        Hauptventil (Ausgang 0) mit.
-      </p>
+      <p className="muted small">{t('zones.hint')}</p>
     </>
   )
 }

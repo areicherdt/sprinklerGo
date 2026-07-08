@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { StateDTO } from './api'
+import { setLanguage } from './i18n'
 import { setClockFormat } from './util'
 
 export interface LiveState {
@@ -23,6 +24,7 @@ export function useLiveState(): LiveState {
     const apply = (s: StateDTO) => {
       if (closed) return
       setClockFormat(s.clock24h)
+      setLanguage(s.language)
       setLive({ state: s, receivedAt: Date.now(), error: null })
     }
     const fail = (msg: string) => {

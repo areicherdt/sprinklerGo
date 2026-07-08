@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, Schedule, Zone } from '../api'
 import { useToast } from '../components'
+import { t } from '../i18n'
 
 export default function QuickRun() {
   const [zones, setZones] = useState<Zone[]>([])
@@ -29,7 +30,7 @@ export default function QuickRun() {
   const startSchedule = async () => {
     try {
       await api.quickRunSchedule(selected)
-      toast('Bewässerung gestartet.')
+      toast(t('quick.started'))
       nav('/')
     } catch (e) {
       setError((e as Error).message)
@@ -39,12 +40,12 @@ export default function QuickRun() {
   const startDurations = async () => {
     const list = zones.map((z) => durations[z.id] ?? 0)
     if (list.every((d) => d === 0)) {
-      setError('Mindestens eine Zone braucht eine Laufzeit > 0.')
+      setError(t('quick.needOne'))
       return
     }
     try {
       await api.quickRunDurations(list)
-      toast('Bewässerung gestartet.')
+      toast(t('quick.started'))
       nav('/')
     } catch (e) {
       setError((e as Error).message)
@@ -55,16 +56,14 @@ export default function QuickRun() {
 
   return (
     <>
-      <h1>Schnellstart</h1>
+      <h1>{t('quick.title')}</h1>
       {error && <div className="banner error">{error}</div>}
-      <p className="muted">
-        Startet sofort eine Bewässerung und unterbricht dabei einen laufenden Zyklus.
-      </p>
+      <p className="muted">{t('quick.intro')}</p>
 
       <div className="card">
-        <h2>Programm sofort starten</h2>
+        <h2>{t('quick.program')}</h2>
         {schedules.length === 0 ? (
-          <p className="muted">Keine Programme vorhanden.</p>
+          <p className="muted">{t('quick.noPrograms')}</p>
         ) : (
           <div className="row">
             <select value={selected} onChange={(e) => setSelected(Number(e.target.value))}>
@@ -75,17 +74,17 @@ export default function QuickRun() {
               ))}
             </select>
             <button className="primary" onClick={startSchedule}>
-              Starten
+              {t('quick.startBtn')}
             </button>
           </div>
         )}
-        <p className="muted small">Saisonale und Wetter-Anpassung werden angewendet.</p>
+        <p className="muted small">{t('quick.adjustHint')}</p>
       </div>
 
       <div className="card">
-        <h2>Eigene Laufzeiten (Minuten)</h2>
+        <h2>{t('quick.custom')}</h2>
         {enabledZones.length === 0 ? (
-          <p className="muted">Keine aktiven Zonen.</p>
+          <p className="muted">{t('quick.noActiveZones')}</p>
         ) : (
           <>
             {enabledZones.map((z) => (
@@ -107,10 +106,10 @@ export default function QuickRun() {
             ))}
             <div className="row" style={{ marginTop: 12 }}>
               <button className="primary" onClick={startDurations}>
-                Starten
+                {t('quick.startBtn')}
               </button>
             </div>
-            <p className="muted small">Läuft ohne Anpassungen, Zonen nacheinander.</p>
+            <p className="muted small">{t('quick.rawHint')}</p>
           </>
         )}
       </div>

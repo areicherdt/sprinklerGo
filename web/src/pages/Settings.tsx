@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { AuthStatus, api, Settings as SettingsT, WeatherCheck } from '../api'
 import { useToast } from '../components'
-import { MONTHS, fmtSeconds } from '../util'
+import { getLanguage, locale, months, t } from '../i18n'
+import { fmtSeconds } from '../util'
 
 function SecurityCard() {
   const [status, setStatus] = useState<AuthStatus | null>(null)
@@ -25,7 +26,7 @@ function SecurityCard() {
   const toggle = async (enabled: boolean) => {
     try {
       await api.setAuthEnabled(enabled)
-      toast(enabled ? 'Anmeldung aktiviert.' : 'Anmeldung deaktiviert.')
+      toast(enabled ? t('set.authOn') : t('set.authOff'))
       refresh()
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -35,7 +36,7 @@ function SecurityCard() {
   const savePassword = async () => {
     try {
       await api.changePassword(currentPw, newPw)
-      toast('Passwort gespeichert.')
+      toast(t('set.pwSaved'))
       setCurrentPw('')
       setNewPw('')
       refresh()
@@ -58,7 +59,7 @@ function SecurityCard() {
   const removeToken = async (name: string) => {
     try {
       await api.deleteToken(name)
-      toast(`Token „${name}" widerrufen.`)
+      toast(t('set.tokenRevoked', { name }))
       refresh()
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -67,9 +68,9 @@ function SecurityCard() {
 
   return (
     <div className="card">
-      <h2>Sicherheit</h2>
+      <h2>{t('set.security')}</h2>
       <div className="row spread" style={{ marginBottom: 10 }}>
-        <span>Anmeldung erforderlich</span>
+        <span>{t('set.authRequired')}</span>
         <label className="switch">
           <input
             type="checkbox"
@@ -80,15 +81,11 @@ function SecurityCard() {
           <span className="slider" />
         </label>
       </div>
-      {!status.hasPassword && (
-        <p className="muted small">
-          Zuerst ein Passwort setzen, dann lässt sich die Anmeldung aktivieren.
-        </p>
-      )}
+      {!status.hasPassword && <p className="muted small">{t('set.authNeedPassword')}</p>}
       <div className="row">
         {status.hasPassword && (
           <label className="field" style={{ flex: 1, minWidth: 160 }}>
-            <span>Aktuelles Passwort</span>
+            <span>{t('set.currentPw')}</span>
             <input
               type="password"
               value={currentPw}
@@ -98,7 +95,7 @@ function SecurityCard() {
           </label>
         )}
         <label className="field" style={{ flex: 1, minWidth: 160 }}>
-          <span>Neues Passwort (min. 6 Zeichen)</span>
+          <span>{t('set.newPw')}</span>
           <input
             type="password"
             value={newPw}
@@ -109,49 +106,48 @@ function SecurityCard() {
       </div>
       <div className="row" style={{ marginBottom: 14 }}>
         <button disabled={newPw.length < 6} onClick={savePassword}>
-          Passwort speichern
+          {t('set.savePw')}
         </button>
         {status.enabled && (
           <button onClick={() => api.logout().then(() => window.location.reload())}>
-            Abmelden
+            {t('set.signOut')}
           </button>
         )}
       </div>
 
-      <h2 style={{ fontSize: 14 }}>API-Tokens für Automatisierung</h2>
-      {(status.tokens ?? []).map((t) => (
-        <div className="zone-row" key={t.name}>
-          <span className="name">{t.name}</span>
+      <h2 style={{ fontSize: 14 }}>{t('set.tokens')}</h2>
+      {(status.tokens ?? []).map((tok) => (
+        <div className="zone-row" key={tok.name}>
+          <span className="name">{tok.name}</span>
           <span className="muted small">
-            seit {new Date(t.createdAt * 1000).toLocaleDateString('de-DE')}
+            {t('set.tokenSince', {
+              d: new Date(tok.createdAt * 1000).toLocaleDateString(locale()),
+            })}
           </span>
-          <button className="danger" onClick={() => removeToken(t.name)}>
-            Widerrufen
+          <button className="danger" onClick={() => removeToken(tok.name)}>
+            {t('set.revoke')}
           </button>
         </div>
       ))}
       <div className="row" style={{ marginTop: 8 }}>
         <input
           type="text"
-          placeholder="Token-Name (z. B. homeassistant)"
+          placeholder={t('set.tokenPlaceholder')}
           value={tokenName}
           onChange={(e) => setTokenName(e.target.value)}
         />
         <button disabled={tokenName.trim() === ''} onClick={createToken}>
-          Token erzeugen
+          {t('set.createToken')}
         </button>
       </div>
       {newToken && (
         <div className="banner info" style={{ marginTop: 10 }}>
-          Neues Token (wird nur einmal angezeigt): <code>{newToken}</code>
+          {t('set.newTokenNote')} <code>{newToken}</code>
           <br />
-          Verwendung: Header <code>Authorization: Bearer &lt;Token&gt;</code>
+          {t('set.tokenUsage')} <code>Authorization: Bearer &lt;Token&gt;</code>
         </div>
       )}
-      <p className="muted small">
-        Bei aktivierter Anmeldung verlangen alle API-Aufrufe eine Sitzung oder ein Token; die
-        Weboberfläche zeigt eine Login-Seite.
-      </p>
+      <p className="muted small">{t('set.securityHint')}</p>
     </div>
   )
 }
@@ -177,7 +173,11 @@ export default function Settings() {
   }, [])
 
   if (!form)
-    return error ? <div className="banner error">{error}</div> : <p className="muted">Lade…</p>
+    return error ? (
+      <div className="banner error">{error}</div>
+    ) : (
+      <p className="muted">{t('common.loading')}</p>
+    )
 
   const patch = (p: Partial<SettingsT>) => setForm({ ...form, ...p })
 
@@ -187,18 +187,20 @@ export default function Settings() {
     setWarn(null)
     const gpioPins = pins.split(',').map((s) => Number(s.trim()))
     if (gpioPins.some((n) => Number.isNaN(n) || n < 0)) {
-      setError('GPIO-Pins: bitte 16 Zahlen, durch Kommas getrennt.')
+      setError(t('set.gpioPinsError'))
       return
     }
     try {
       const res = await api.saveSettings({ ...form, gpioPins })
-      if (res.outputError)
-        setWarn(
-          `Gespeichert, aber der Ausgang konnte nicht initialisiert werden: ${res.outputError}`,
-        )
-      else if (res.restartRequired)
-        setNotice('Gespeichert. Der neue Web-Port gilt nach einem Neustart des Dienstes.')
-      else toast('Einstellungen gespeichert.')
+      // A language change only takes effect on a full render — reload so the
+      // whole app picks up the new dictionary.
+      if (form.language !== getLanguage()) {
+        window.location.reload()
+        return
+      }
+      if (res.outputError) setWarn(t('set.savedOutputWarn', { err: res.outputError }))
+      else if (res.restartRequired) setNotice(t('set.savedRestart'))
+      else toast(t('set.saved'))
     } catch (e) {
       setError((e as Error).message)
     }
@@ -215,26 +217,26 @@ export default function Settings() {
 
   return (
     <>
-      <h1>Einstellungen</h1>
+      <h1>{t('set.title')}</h1>
       {error && <div className="banner error">{error}</div>}
       {notice && <div className="banner info">{notice}</div>}
       {warn && <div className="banner warn">{warn}</div>}
 
       <div className="card">
-        <h2>Bewässerung</h2>
+        <h2>{t('set.watering')}</h2>
         <label className="field">
-          <span>Saisonale Anpassung</span>
+          <span>{t('set.seasonal')}</span>
           <select
             value={form.seasonalMode}
             onChange={(e) => patch({ seasonalMode: e.target.value as SettingsT['seasonalMode'] })}
           >
-            <option value="global">Ein globaler Prozentwert</option>
-            <option value="monthly">Monatsprofil (12 Werte)</option>
+            <option value="global">{t('set.seasonalGlobal')}</option>
+            <option value="monthly">{t('set.seasonalMonthly')}</option>
           </select>
         </label>
         {form.seasonalMode === 'global' ? (
           <label className="field">
-            <span>Anpassung: {form.seasonalAdjust} %</span>
+            <span>{t('set.adjustment', { n: form.seasonalAdjust })}</span>
             <input
               type="number"
               min={0}
@@ -245,8 +247,8 @@ export default function Settings() {
           </label>
         ) : (
           <div className="month-grid">
-            {MONTHS.map((m, i) => (
-              <label className="field" key={m}>
+            {months().map((m, i) => (
+              <label className="field" key={i}>
                 <span>{m}</span>
                 <input
                   type="number"
@@ -264,29 +266,26 @@ export default function Settings() {
             ))}
           </div>
         )}
-        <p className="muted small">
-          Skaliert alle Programmlaufzeiten (100 % = keine Anpassung). Wird mit der Wetter-Anpassung
-          multipliziert.
-        </p>
+        <p className="muted small">{t('set.seasonalHint')}</p>
       </div>
 
       <div className="card">
-        <h2>Ausgänge</h2>
+        <h2>{t('set.outputs')}</h2>
         <label className="field">
-          <span>Ausgabetyp</span>
+          <span>{t('set.outputType')}</span>
           <select
             value={form.outputType}
             onChange={(e) => patch({ outputType: e.target.value as SettingsT['outputType'] })}
           >
-            <option value="none">Keiner (Testbetrieb)</option>
-            <option value="script">Externes Skript</option>
-            <option value="gpio+">GPIO direkt (aktiv high)</option>
-            <option value="gpio-">GPIO direkt (aktiv low)</option>
+            <option value="none">{t('set.outputNone')}</option>
+            <option value="script">{t('set.outputScript')}</option>
+            <option value="gpio+">{t('set.outputGpioHigh')}</option>
+            <option value="gpio-">{t('set.outputGpioLow')}</option>
           </select>
         </label>
         {form.outputType === 'script' && (
           <label className="field">
-            <span>Skript-Pfad (aufgerufen als: Pfad &lt;Ausgang&gt; &lt;0|1&gt;)</span>
+            <span>{t('set.scriptPath')}</span>
             <input
               type="text"
               value={form.scriptPath}
@@ -297,7 +296,7 @@ export default function Settings() {
         )}
         {(form.outputType === 'gpio+' || form.outputType === 'gpio-') && (
           <label className="field">
-            <span>GPIO-Pins (BCM, 16 Werte: Pumpe + 15 Zonen)</span>
+            <span>{t('set.gpioPins')}</span>
             <input
               type="text"
               value={pins}
@@ -308,7 +307,7 @@ export default function Settings() {
         )}
         <div className="row" style={{ gap: 24 }}>
           <label className="field">
-            <span>Pumpen-Vorlauf (Sekunden)</span>
+            <span>{t('set.pumpPre')}</span>
             <input
               type="number"
               min={0}
@@ -318,7 +317,7 @@ export default function Settings() {
             />
           </label>
           <label className="field">
-            <span>Pumpen-Nachlauf (Sekunden)</span>
+            <span>{t('set.pumpPost')}</span>
             <input
               type="number"
               min={0}
@@ -328,27 +327,24 @@ export default function Settings() {
             />
           </label>
         </div>
-        <p className="muted small">
-          Vorlauf: Pumpe/Hauptventil startet vor dem Zonenventil; Nachlauf: läuft nach dem Schließen
-          nach (0 = gleichzeitig).
-        </p>
+        <p className="muted small">{t('set.pumpHint')}</p>
       </div>
 
       <div className="card">
-        <h2>Wetter</h2>
+        <h2>{t('set.weather')}</h2>
         <label className="field">
-          <span>Anbieter</span>
+          <span>{t('set.provider')}</span>
           <select
             value={form.weatherProvider}
             onChange={(e) => patch({ weatherProvider: e.target.value })}
           >
-            <option value="none">Keiner (keine Anpassung)</option>
-            <option value="openmeteo">Open-Meteo (kostenlos, ohne API-Key)</option>
+            <option value="none">{t('set.providerNone')}</option>
+            <option value="openmeteo">{t('set.providerOpenMeteo')}</option>
           </select>
         </label>
         {form.weatherProvider !== 'none' && (
           <label className="field">
-            <span>Standort als „Breitengrad,Längengrad&quot; (z. B. „52.52,13.40&quot;)</span>
+            <span>{t('set.location')}</span>
             <input
               type="text"
               value={form.location}
@@ -357,40 +353,41 @@ export default function Settings() {
             />
           </label>
         )}
-        <button onClick={runCheck}>Wetter-Diagnose ausführen</button>
+        <button onClick={runCheck}>{t('set.runDiag')}</button>
         {check && (
           <div
             className={`banner ${!check.noProvider && !check.vals.valid ? 'warn' : 'info'}`}
             style={{ marginTop: 12 }}
           >
             {check.noProvider ? (
-              <>Kein Wetter-Anbieter konfiguriert — Skalierung bleibt bei 100 %.</>
+              t('set.diagNoProvider')
             ) : check.vals.valid ? (
               <>
-                Anbieter „{check.provider}": OK · Skalierung: <strong>{check.scale} %</strong> ·
-                Gestern Ø {Math.round(((check.vals.meanTempF - 32) * 5) / 9)} °C, Feuchte{' '}
-                {check.vals.minHumidity}–{check.vals.maxHumidity} %, Regen{' '}
-                {(check.vals.precipYesterday * 0.254).toFixed(1)} mm · Heute Regen{' '}
-                {(check.vals.precipToday * 0.254).toFixed(1)} mm
+                {t('set.diagResult', {
+                  provider: check.provider,
+                  scale: check.scale,
+                  temp: Math.round(((check.vals.meanTempF - 32) * 5) / 9),
+                  hmin: check.vals.minHumidity,
+                  hmax: check.vals.maxHumidity,
+                  rain: (check.vals.precipYesterday * 0.254).toFixed(1),
+                  rainToday: (check.vals.precipToday * 0.254).toFixed(1),
+                })}
               </>
             ) : (
-              <>
-                Anbieter „{check.provider}" liefert keine Daten:{' '}
-                {check.vals.error ?? 'unbekannter Fehler'}
-              </>
+              t('set.diagError', {
+                provider: check.provider,
+                err: check.vals.error ?? t('set.diagUnknown'),
+              })
             )}
           </div>
         )}
-        <p className="muted small">
-          Die Wetter-Anpassung skaliert Programme mit aktivierter „Wetter-Anpassung" auf 0–200 %
-          anhand von Temperatur, Luftfeuchte und Regen des Vortags.
-        </p>
+        <p className="muted small">{t('set.weatherHint')}</p>
       </div>
 
       <div className="card">
-        <h2>Integration</h2>
+        <h2>{t('set.integration')}</h2>
         <div className="row spread" style={{ marginBottom: 10 }}>
-          <span>MQTT (inkl. Home-Assistant-Discovery)</span>
+          <span>{t('set.mqtt')}</span>
           <label className="switch">
             <input
               type="checkbox"
@@ -403,7 +400,7 @@ export default function Settings() {
         {form.mqttEnabled && (
           <>
             <label className="field">
-              <span>Broker (z. B. „tcp://192.168.1.10:1883&quot;)</span>
+              <span>{t('set.broker')}</span>
               <input
                 type="text"
                 value={form.mqttBroker}
@@ -413,7 +410,7 @@ export default function Settings() {
             </label>
             <div className="row">
               <label className="field" style={{ flex: 1, minWidth: 160 }}>
-                <span>Benutzername</span>
+                <span>{t('set.username')}</span>
                 <input
                   type="text"
                   value={form.mqttUsername}
@@ -422,7 +419,7 @@ export default function Settings() {
                 />
               </label>
               <label className="field" style={{ flex: 1, minWidth: 160 }}>
-                <span>Passwort</span>
+                <span>{t('set.passwordField')}</span>
                 <input
                   type="password"
                   value={form.mqttPassword}
@@ -433,7 +430,7 @@ export default function Settings() {
             </div>
             <div className="row">
               <label className="field">
-                <span>Topic-Präfix</span>
+                <span>{t('set.topicPrefix')}</span>
                 <input
                   type="text"
                   value={form.mqttTopicPrefix}
@@ -446,17 +443,14 @@ export default function Settings() {
                   checked={form.mqttHADiscovery}
                   onChange={(e) => patch({ mqttHADiscovery: e.target.checked })}
                 />
-                Home-Assistant-Discovery
+                {t('set.haDiscovery')}
               </label>
             </div>
-            <p className="muted small">
-              Zonen erscheinen in Home Assistant automatisch als Schalter, dazu Automatik,
-              Regenpause, Stopp-Taste und Sensoren für aktive Zone und Wetter-Skalierung.
-            </p>
+            <p className="muted small">{t('set.mqttHint')}</p>
           </>
         )}
         <label className="field" style={{ marginTop: 8 }}>
-          <span>Webhook-URL für Ereignisse (leer = aus)</span>
+          <span>{t('set.webhook')}</span>
           <input
             type="text"
             value={form.webhookUrl}
@@ -465,19 +459,16 @@ export default function Settings() {
             onChange={(e) => patch({ webhookUrl: e.target.value })}
           />
         </label>
-        <p className="muted small">
-          Sendet JSON-POSTs bei „Lauf gestartet/beendet&quot;, Regenpausen-Übersprüngen sowie
-          Ausgangs- und Wetterfehlern — z. B. an ntfy oder Node-RED.
-        </p>
+        <p className="muted small">{t('set.webhookHint')}</p>
       </div>
 
       <SecurityCard />
 
       <div className="card">
-        <h2>Sicherung</h2>
+        <h2>{t('set.backup')}</h2>
         <div className="row">
           <a href="/api/backup" download>
-            <button>Konfiguration exportieren</button>
+            <button>{t('set.export')}</button>
           </a>
           <input
             ref={fileRef}
@@ -490,11 +481,7 @@ export default function Settings() {
               if (!file) return
               try {
                 const res = await api.restore(await file.text())
-                toast(
-                  res.restartRequired
-                    ? 'Wiederhergestellt — neuer Web-Port gilt nach Neustart.'
-                    : 'Konfiguration wiederhergestellt.',
-                )
+                toast(res.restartRequired ? t('set.restoredRestart') : t('set.restored'))
                 const s = await api.settings()
                 setForm(s)
                 setPins(s.gpioPins.join(', '))
@@ -504,19 +491,16 @@ export default function Settings() {
             }}
           />
           <button type="button" onClick={() => fileRef.current?.click()}>
-            Sicherung importieren…
+            {t('set.import')}
           </button>
         </div>
-        <p className="muted small">
-          Der Export enthält Zonen, Programme und alle Einstellungen (inkl. Zugangsdaten). Beim
-          Import wird eine ältere Sicherung automatisch migriert; laufende Bewässerung stoppt.
-        </p>
+        <p className="muted small">{t('set.backupHint')}</p>
       </div>
 
       <div className="card">
-        <h2>System</h2>
+        <h2>{t('set.system')}</h2>
         <label className="field">
-          <span>Web-Port</span>
+          <span>{t('set.webPort')}</span>
           <input
             type="number"
             min={1}
@@ -526,7 +510,7 @@ export default function Settings() {
           />
         </label>
         <label className="field">
-          <span>Verlauf aufbewahren (Monate, 0 = unbegrenzt)</span>
+          <span>{t('set.retention')}</span>
           <input
             type="number"
             min={0}
@@ -536,7 +520,7 @@ export default function Settings() {
           />
         </label>
         <label className="field">
-          <span>Timer für manuelle Läufe (Minuten, 0 = unbegrenzt)</span>
+          <span>{t('set.manualTimer')}</span>
           <input
             type="number"
             min={0}
@@ -545,21 +529,31 @@ export default function Settings() {
             onChange={(e) => patch({ manualTimerMinutes: Number(e.target.value) || 0 })}
           />
         </label>
+        <label className="field">
+          <span>{t('set.language')}</span>
+          <select
+            value={form.language}
+            onChange={(e) => patch({ language: e.target.value as SettingsT['language'] })}
+          >
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <label className="checkbox">
           <input
             type="checkbox"
             checked={form.clock24h}
             onChange={(e) => patch({ clock24h: e.target.checked })}
           />
-          24-Stunden-Format
+          {t('set.clock24')}
         </label>
         <p className="muted small" style={{ marginTop: 8 }}>
-          Beispiel Restlaufzeit-Format: {fmtSeconds(4980)}
+          {t('set.exampleFmt', { t: fmtSeconds(4980) })}
         </p>
       </div>
 
       <button className="primary" onClick={save}>
-        Speichern
+        {t('common.save')}
       </button>
     </>
   )

@@ -153,6 +153,7 @@ type stateDTO struct {
 	ScheduleCount    int               `json:"scheduleCount"`
 	RainDelayUntil   int64             `json:"rainDelayUntil"` // unix, 0 = keine
 	Clock24h         bool              `json:"clock24h"`
+	Language         string            `json:"language"`
 	ZonesOn          []bool            `json:"zonesOn"`
 	PumpOn           bool              `json:"pumpOn"`
 	Planned          []plannedDTO      `json:"planned"`
@@ -176,6 +177,7 @@ func (s *Server) stateDTO() stateDTO {
 		ScheduleCount:    len(cfg.Schedules),
 		RainDelayUntil:   cfg.RainDelayUntil,
 		Clock24h:         cfg.Settings.Clock24h,
+		Language:         cfg.Settings.Language,
 		ZonesOn:          st.ZoneOn,
 		PumpOn:           st.PumpOn,
 		Planned:          []plannedDTO{},
@@ -193,6 +195,9 @@ func (s *Server) stateDTO() stateDTO {
 	}
 	schedName := func(id int) string {
 		if id == engine.ScheduleQuick {
+			if cfg.Settings.Language == "en" {
+				return "Quick run"
+			}
 			return "Schnellstart"
 		}
 		if id >= 0 && id < len(cfg.Schedules) {

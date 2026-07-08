@@ -1,4 +1,5 @@
 import { ReactNode, createContext, useCallback, useContext, useRef, useState } from 'react'
+import { t } from './i18n'
 
 // ---- Toasts ----
 
@@ -47,7 +48,7 @@ export function ConfirmDialog({
   open,
   title,
   text,
-  confirmLabel = 'Löschen',
+  confirmLabel,
   onConfirm,
   onCancel,
 }: {
@@ -72,7 +73,7 @@ export function ConfirmDialog({
         <p>{text}</p>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button onClick={onCancel} autoFocus>
-            Abbrechen
+            {t('common.cancel')}
           </button>
           <button className="danger" onClick={onConfirm}>
             {confirmLabel}

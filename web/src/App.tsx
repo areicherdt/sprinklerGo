@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { AuthStatus, api } from './api'
 import { ToastProvider } from './components'
+import { MsgKey, setLanguage, t } from './i18n'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import Zones from './pages/Zones'
@@ -11,13 +12,13 @@ import QuickRun from './pages/QuickRun'
 import History from './pages/History'
 import Settings from './pages/Settings'
 
-const NAV = [
-  { to: '/', label: 'Übersicht' },
-  { to: '/zones', label: 'Zonen' },
-  { to: '/schedules', label: 'Programme' },
-  { to: '/quickrun', label: 'Schnellstart' },
-  { to: '/history', label: 'Verlauf' },
-  { to: '/settings', label: 'Einstellungen' },
+const NAV: { to: string; label: MsgKey }[] = [
+  { to: '/', label: 'nav.overview' },
+  { to: '/zones', label: 'nav.zones' },
+  { to: '/schedules', label: 'nav.schedules' },
+  { to: '/quickrun', label: 'nav.quickrun' },
+  { to: '/history', label: 'nav.history' },
+  { to: '/settings', label: 'nav.settings' },
 ]
 
 export default function App() {
@@ -27,8 +28,15 @@ export default function App() {
     const check = () =>
       api
         .auth()
-        .then(setAuth)
-        .catch(() => setAuth({ enabled: false, loggedIn: true, hasPassword: false }))
+        .then((a) => {
+          // Die Sprache kommt vor dem ersten Render über die offene
+          // Status-Probe, damit auch die Login-Seite übersetzt ist.
+          setLanguage(a.language)
+          setAuth(a)
+        })
+        .catch(() =>
+          setAuth({ enabled: false, loggedIn: true, hasPassword: false, language: 'de' }),
+        )
     check()
     window.addEventListener('sprinklergo:unauthorized', check)
     return () => window.removeEventListener('sprinklergo:unauthorized', check)
@@ -47,7 +55,7 @@ export default function App() {
             <img src="/sprinkler.svg" alt="" />
             sprinklerGo
           </div>
-          <nav className="main-nav">
+          <nav className="main-nav" aria-label="Navigation">
             {NAV.map((n) => (
               <NavLink
                 key={n.to}
@@ -55,7 +63,7 @@ export default function App() {
                 end={n.to === '/'}
                 className={({ isActive }) => (isActive ? 'active' : '')}
               >
-                {n.label}
+                {t(n.label)}
               </NavLink>
             ))}
           </nav>

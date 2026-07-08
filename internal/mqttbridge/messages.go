@@ -65,9 +65,19 @@ func stateMessages(cfg *model.Config, st engine.State, scale int, prefix string)
 	return msgs
 }
 
+// label picks the entity name for the configured UI language.
+func label(lang, de, en string) string {
+	if lang == "en" {
+		return en
+	}
+	return de
+}
+
 // discoveryMessages renders Home Assistant MQTT discovery configs (retained).
 // Disabled zones get an empty retained payload, which removes the entity.
+// Entity names follow the configured UI language.
 func discoveryMessages(cfg *model.Config, version, prefix string) []Message {
+	lang := cfg.Settings.Language
 	device := map[string]any{
 		"identifiers":  []string{"sprinklergo"},
 		"name":         "sprinklerGo",
@@ -101,34 +111,34 @@ func discoveryMessages(cfg *model.Config, version, prefix string) []Message {
 	}
 	msgs = append(msgs,
 		Message{"homeassistant/switch/sprinklergo/run/config", entity(map[string]any{
-			"name":          "Automatik",
+			"name":          label(lang, "Automatik", "Automatic"),
 			"unique_id":     "sprinklergo_run",
 			"state_topic":   prefix + "/system/run/state",
 			"command_topic": prefix + "/system/run/set",
 			"icon":          "mdi:calendar-check",
 		}), true},
 		Message{"homeassistant/switch/sprinklergo/rain_delay/config", entity(map[string]any{
-			"name":          "Regenpause",
+			"name":          label(lang, "Regenpause", "Rain delay"),
 			"unique_id":     "sprinklergo_rain_delay",
 			"state_topic":   prefix + "/rain_delay/state",
 			"command_topic": prefix + "/rain_delay/set",
 			"icon":          "mdi:weather-rainy",
 		}), true},
 		Message{"homeassistant/button/sprinklergo/stop/config", entity(map[string]any{
-			"name":          "Alles stoppen",
+			"name":          label(lang, "Alles stoppen", "Stop all"),
 			"unique_id":     "sprinklergo_stop",
 			"command_topic": prefix + "/stop/set",
 			"payload_press": "STOP",
 			"icon":          "mdi:stop",
 		}), true},
 		Message{"homeassistant/sensor/sprinklergo/active_zone/config", entity(map[string]any{
-			"name":        "Aktive Zone",
+			"name":        label(lang, "Aktive Zone", "Active zone"),
 			"unique_id":   "sprinklergo_active_zone",
 			"state_topic": prefix + "/active_zone/state",
 			"icon":        "mdi:water",
 		}), true},
 		Message{"homeassistant/sensor/sprinklergo/weather_scale/config", entity(map[string]any{
-			"name":                "Wetter-Skalierung",
+			"name":                label(lang, "Wetter-Skalierung", "Weather scale"),
 			"unique_id":           "sprinklergo_weather_scale",
 			"state_topic":         prefix + "/weather_scale/state",
 			"unit_of_measurement": "%",

@@ -45,6 +45,12 @@ func TestMigrateRawV1ToCurrent(t *testing.T) {
 	if cfg.Settings.ManualTimerMinutes != 30 {
 		t.Errorf("manualTimerMinutes = %d, want default 30", cfg.Settings.ManualTimerMinutes)
 	}
+	if cfg.Settings.Language != "de" {
+		t.Errorf("language = %q, want default de", cfg.Settings.Language)
+	}
+	if cfg.Settings.SeasonalMode != "global" {
+		t.Errorf("seasonalMode = %q, want default global", cfg.Settings.SeasonalMode)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("migrated config invalid: %v", err)
 	}
@@ -128,6 +134,9 @@ func stripField(t *testing.T, s model.Settings) map[string]any {
 	json.Unmarshal(raw, &m)
 	delete(m, "logRetentionMonths")
 	delete(m, "manualTimerMinutes")
+	delete(m, "language")
+	delete(m, "seasonalMode")
+	delete(m, "seasonalMonthly")
 	return m
 }
 

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { api } from '../api'
+import { t } from '../i18n'
 
 export default function Login({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState('')
@@ -14,7 +15,7 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
       await api.login(password)
       onSuccess()
     } catch {
-      setError('Falsches Passwort.')
+      setError(t('login.wrong'))
       setPassword('')
     } finally {
       setBusy(false)
@@ -28,11 +29,11 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
           <img src="/sprinkler.svg" alt="" />
           sprinklerGo
         </div>
-        <p className="muted">Anmeldung erforderlich.</p>
+        <p className="muted">{t('login.required')}</p>
         {error && <div className="banner error">{error}</div>}
         <form onSubmit={submit}>
           <label className="field">
-            <span>Passwort</span>
+            <span>{t('login.password')}</span>
             <input
               type="password"
               value={password}
@@ -42,7 +43,7 @@ export default function Login({ onSuccess }: { onSuccess: () => void }) {
             />
           </label>
           <button className="primary" type="submit" disabled={busy || password === ''}>
-            Anmelden
+            {t('login.submit')}
           </button>
         </form>
       </div>

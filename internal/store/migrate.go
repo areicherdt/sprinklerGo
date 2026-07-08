@@ -17,6 +17,7 @@ var migrations = []migration{
 	migrateV2AddManualTimer,
 	migrateV3AddIntegration,
 	migrateV4AddSeasonalProfileAndAuth,
+	migrateV5AddLanguage,
 }
 
 // v1 → v2: introduce settings.logRetentionMonths (default 24; 0 = unlimited).
@@ -80,6 +81,18 @@ func migrateV4AddSeasonalProfileAndAuth(cfg map[string]any) error {
 	}
 	if _, exists := cfg["auth"]; !exists {
 		cfg["auth"] = map[string]any{"enabled": false}
+	}
+	return nil
+}
+
+// v5 → v6: UI language, defaulting to German (the pre-i18n UI language).
+func migrateV5AddLanguage(cfg map[string]any) error {
+	settings, ok := cfg["settings"].(map[string]any)
+	if !ok {
+		return errors.New("config has no settings object")
+	}
+	if _, exists := settings["language"]; !exists {
+		settings["language"] = "de"
 	}
 	return nil
 }

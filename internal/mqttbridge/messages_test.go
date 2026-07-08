@@ -102,6 +102,33 @@ func TestDiscoveryMessages(t *testing.T) {
 	}
 }
 
+func TestDiscoveryNamesFollowLanguage(t *testing.T) {
+	cfg := testCfg()
+	cfg.Settings.Language = "en"
+	msgs := discoveryMessages(&cfg, "1.0.0", "sg")
+
+	run := find(msgs, "homeassistant/switch/sprinklergo/run/config")
+	if run == nil {
+		t.Fatal("run switch discovery missing")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(run.Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["name"] != "Automatic" {
+		t.Errorf("English run switch name = %v, want Automatic", payload["name"])
+	}
+
+	// German is the default.
+	cfg.Settings.Language = "de"
+	msgsDe := discoveryMessages(&cfg, "1.0.0", "sg")
+	runDe := find(msgsDe, "homeassistant/switch/sprinklergo/run/config")
+	json.Unmarshal([]byte(runDe.Payload), &payload)
+	if payload["name"] != "Automatik" {
+		t.Errorf("German run switch name = %v, want Automatik", payload["name"])
+	}
+}
+
 func TestParseCommand(t *testing.T) {
 	for _, tc := range []struct {
 		topic, payload string

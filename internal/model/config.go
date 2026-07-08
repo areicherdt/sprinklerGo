@@ -21,7 +21,7 @@ const NumOutputs = MaxZones + 1 // pump/master + 15 zones
 
 // ConfigVersion is the current config.json schema version. Older documents
 // are upgraded by the migration chain in the store package.
-const ConfigVersion = 5
+const ConfigVersion = 6
 
 type Settings struct {
 	WebPort    int        `json:"webPort"`
@@ -46,6 +46,9 @@ type Settings struct {
 	APISecret       string `json:"apiSecret"`
 	Location        string `json:"location"`
 	Clock24h        bool   `json:"clock24h"`
+	// Language selects the UI language ("de" or "en"); also used for the
+	// Home Assistant entity names.
+	Language string `json:"language"`
 	// RunSchedules is the global scheduler on/off switch.
 	RunSchedules bool `json:"runSchedules"`
 	// LogRetentionMonths prunes zone log entries older than this many
@@ -101,6 +104,11 @@ func (s *Settings) Validate() error {
 	}
 	if s.PumpPreSeconds < 0 || s.PumpPreSeconds > 120 || s.PumpPostSeconds < 0 || s.PumpPostSeconds > 120 {
 		return fmt.Errorf("pump pre/post run must be 0-120 seconds")
+	}
+	switch s.Language {
+	case "de", "en":
+	default:
+		return fmt.Errorf("language must be \"de\" or \"en\"")
 	}
 	if s.LogRetentionMonths < 0 || s.LogRetentionMonths > 120 {
 		return fmt.Errorf("logRetentionMonths must be 0-120 (0 = unlimited)")
@@ -271,6 +279,7 @@ func DefaultConfig() Config {
 			SeasonalMonthly:    DefaultSeasonalMonthly(),
 			WeatherProvider:    "none",
 			Clock24h:           true,
+			Language:           "de",
 			RunSchedules:       false,
 			LogRetentionMonths: 24,
 			ManualTimerMinutes: 30,

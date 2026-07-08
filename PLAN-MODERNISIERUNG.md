@@ -1,11 +1,11 @@
 # Modernisierungsplan (Phase 2): sprinklerGo
 
-> **Umsetzungsstand (2026-07-07): alle Meilensteine M7–M12 umgesetzt.**
-> Bewusste Abweichung: Die englische Übersetzung (i18n, §3.B.6) ist
-> zurückgestellt — die Oberfläche ist durchgängig deutsch, eine zweite
-> Sprache hat für den aktuellen Nutzerkreis keinen Wert und würde jede
-> UI-Änderung verteuern. Wiederaufnahme bei Bedarf (Strings sind in den
-> Komponenten konzentriert, kein technisches Hindernis).
+> **Umsetzungsstand: alle Meilensteine M7–M12 umgesetzt, inkl. i18n.**
+> Die zweisprachige Oberfläche (Deutsch/English, §3.B.6) wurde am 2026-07-08
+> nachgezogen: zentrales Wörterbuch (`web/src/i18n.ts`) mit typgeprüften
+> Schlüsseln, Sprachwahl in den Einstellungen (persistiert in der Config,
+> v6), sprachabhängige Datums-/Wochentagsformate und Home-Assistant-
+> Entitätsnamen; abgesichert durch einen E2E-Test für den Sprachwechsel.
 
 Der Basis-Port (PLAN.md, M1–M6) hat die Original-Semantik von sprinklers_pi
 bewusst 1:1 übernommen — inklusive einiger Konzepte von 2013. Dieser Plan

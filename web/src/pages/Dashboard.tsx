@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { LogEntry, Schedule, api } from '../api'
 import { useToast } from '../components'
+import { locale, t } from '../i18n'
 import { ticking, useLiveState, useNowSecond } from '../live'
 import { fmtClock, fmtNextRun, fmtSeconds, scheduleLabel } from '../util'
 
@@ -61,7 +62,10 @@ export default function Dashboard() {
         at: a.at,
         status: 'done',
         label: scheduleLabel(id, schedNames),
-        info: `${a.zones} ${a.zones === 1 ? 'Zone' : 'Zonen'}, ${fmtSeconds(a.seconds)}`,
+        info:
+          a.zones === 1
+            ? t('dash.doneInfoOne', { dur: fmtSeconds(a.seconds) })
+            : t('dash.doneInfo', { zones: a.zones, dur: fmtSeconds(a.seconds) }),
       })
     }
     if ((state.mode === 'schedule' || state.mode === 'soaking') && state.queue.length > 0) {
@@ -69,22 +73,30 @@ export default function Dashboard() {
       rows.push({
         at: state.queue[0].start,
         status: 'run',
-        label: state.scheduleName ?? 'Programm',
+        label: state.scheduleName ?? t('dash.program'),
         info:
           state.mode === 'soaking'
-            ? `Sickerpause — ${done}/${state.queue.length} Zyklen`
-            : `läuft — Zyklus ${Math.min(done + 1, state.queue.length)}/${state.queue.length}`,
+            ? t('dash.soakingCycles', { a: done, b: state.queue.length })
+            : t('dash.runningCycle', {
+                a: Math.min(done + 1, state.queue.length),
+                b: state.queue.length,
+              }),
       })
     }
     if (state.mode === 'manual') {
-      rows.push({ at: state.time, status: 'run', label: `${state.zoneName}`, info: 'manuell' })
+      rows.push({
+        at: state.time,
+        status: 'run',
+        label: `${state.zoneName}`,
+        info: t('dash.manualInfo'),
+      })
     }
     for (const p of state.planned) {
       rows.push({
         at: p.at,
         status: 'plan',
         label: p.scheduleName,
-        info: p.waiting ? 'wartet auf laufendes Programm' : 'geplant',
+        info: p.waiting ? t('dash.waiting') : t('dash.planned'),
       })
     }
     return rows.sort((a, b) => a.at - b.at)
@@ -100,53 +112,47 @@ export default function Dashboard() {
 
   return (
     <>
-      <h1>Übersicht</h1>
-      {error && <div className="banner error">Keine Verbindung zum Server: {error}</div>}
+      <h1>{t('dash.title')}</h1>
+      {error && <div className="banner error">{t('common.noConnection', { msg: error })}</div>}
 
       <div className="card-grid">
         <div className="card">
           <div className="row spread">
-            <h2>Status</h2>
+            <h2>{t('dash.status')}</h2>
             {state && (
               <span className={`pill ${running ? 'run' : state.schedulerEnabled ? 'on' : 'off'}`}>
                 <span className="dot" />
                 {running
-                  ? 'Bewässerung läuft'
+                  ? t('dash.running')
                   : state.schedulerEnabled
-                    ? 'Bereit'
-                    : 'Zeitpläne aus'}
+                    ? t('dash.ready')
+                    : t('dash.schedulesOff')}
               </span>
             )}
           </div>
           {state && running ? (
             <>
               <div className="hero-number">
-                {state.mode === 'soaking' ? 'Sickerpause' : state.zoneName}
+                {state.mode === 'soaking' ? t('dash.soaking') : state.zoneName}
               </div>
               <p className="muted">
-                {state.mode === 'manual' ? (
-                  remaining < 0 ? (
-                    'Manuell — läuft bis zum Stopp'
-                  ) : (
-                    <>Manuell — noch {fmtSeconds(remaining)}</>
-                  )
-                ) : state.mode === 'soaking' ? (
-                  <>
-                    Programm „{state.scheduleName}&quot; — nächste Zone in {fmtSeconds(remaining)}
-                  </>
-                ) : (
-                  <>
-                    Programm „{state.scheduleName}&quot; — Zone noch {fmtSeconds(remaining)}
-                  </>
-                )}
+                {state.mode === 'manual'
+                  ? remaining < 0
+                    ? t('dash.manualUntilStop')
+                    : t('dash.manualRemaining', { t: fmtSeconds(remaining) })
+                  : state.mode === 'soaking'
+                    ? t('dash.soakingNext', {
+                        name: state.scheduleName ?? '',
+                        t: fmtSeconds(remaining),
+                      })
+                    : t('dash.zoneRemaining', {
+                        name: state.scheduleName ?? '',
+                        t: fmtSeconds(remaining),
+                      })}
               </p>
               {(state.mode === 'schedule' || state.mode === 'soaking') &&
                 state.queue.length > 0 && (
-                  <div
-                    className="progress"
-                    role="img"
-                    aria-label="Fortschritt der Zonen des laufenden Programms"
-                  >
+                  <div className="progress" role="img" aria-label={t('dash.progressAria')}>
                     {state.queue.map((q, i) => (
                       <div
                         key={i}
@@ -157,20 +163,20 @@ export default function Dashboard() {
                     ))}
                   </div>
                 )}
-              <button className="danger" onClick={() => act(api.stop(), 'Bewässerung gestoppt.')}>
-                Alles stoppen
+              <button className="danger" onClick={() => act(api.stop(), t('dash.stopped'))}>
+                {t('dash.stopAll')}
               </button>
             </>
           ) : (
-            <p className="muted">Keine Zone aktiv.</p>
+            <p className="muted">{t('dash.noZoneActive')}</p>
           )}
         </div>
 
         <div className="card">
-          <h2>Automatik</h2>
+          <h2>{t('dash.automatic')}</h2>
           {state && (
             <div className="row spread">
-              <span>Zeitpläne ausführen</span>
+              <span>{t('dash.runSchedules')}</span>
               <label className="switch">
                 <input
                   type="checkbox"
@@ -178,7 +184,7 @@ export default function Dashboard() {
                   onChange={(e) =>
                     act(
                       api.setRun(e.target.checked),
-                      e.target.checked ? 'Automatik eingeschaltet.' : 'Automatik ausgeschaltet.',
+                      e.target.checked ? t('dash.autoOn') : t('dash.autoOff'),
                     )
                   }
                 />
@@ -188,64 +194,64 @@ export default function Dashboard() {
           )}
           {state && (
             <p className="muted small">
-              {state.enabledZones} aktive Zonen · {state.scheduleCount} Programme ·{' '}
-              {state.pendingEvents} anstehende Ereignisse · v{state.version}
+              {t('dash.stats', {
+                z: state.enabledZones,
+                p: state.scheduleCount,
+                e: state.pendingEvents,
+              })}{' '}
+              · v{state.version}
             </p>
           )}
         </div>
 
         <div className="card">
-          <h2>Regenpause</h2>
+          <h2>{t('dash.rainDelay')}</h2>
           {state &&
             (rainDelayActive ? (
               <>
                 <p>
-                  Aktiv bis{' '}
+                  {t('dash.rainActiveUntil')}{' '}
                   <strong>
-                    {new Date(state.rainDelayUntil * 1000).toLocaleDateString('de-DE', {
+                    {new Date(state.rainDelayUntil * 1000).toLocaleDateString(locale(), {
                       weekday: 'short',
                       day: '2-digit',
                       month: '2-digit',
                     })}{' '}
                     {fmtClock(state.rainDelayUntil)}
                   </strong>
-                  {' — '}Programme starten nicht, manuelle Bewässerung bleibt möglich.
+                  {t('dash.rainNoStarts')}
                 </p>
-                <button onClick={() => act(api.rainDelay(0), 'Regenpause aufgehoben.')}>
-                  Aufheben
+                <button onClick={() => act(api.rainDelay(0), t('dash.rainCleared'))}>
+                  {t('dash.rainClear')}
                 </button>
               </>
             ) : (
               <div className="row">
                 {[24, 48, 72].map((h) => (
-                  <button
-                    key={h}
-                    onClick={() => act(api.rainDelay(h), `Regenpause für ${h} h aktiviert.`)}
-                  >
+                  <button key={h} onClick={() => act(api.rainDelay(h), t('dash.rainSet', { h }))}>
                     {h} h
                   </button>
                 ))}
               </div>
             ))}
-          {!rainDelayActive && (
-            <p className="muted small">Setzt Programmstarts vorübergehend aus.</p>
-          )}
+          {!rainDelayActive && <p className="muted small">{t('dash.rainHint')}</p>}
         </div>
 
         <div className="card">
-          <h2>Wetter</h2>
+          <h2>{t('dash.weather')}</h2>
           {state &&
             (state.weather.provider === 'none' ? (
               <p className="muted">
-                Kein Wetter-Anbieter konfiguriert. <Link to="/settings">Jetzt einrichten</Link>
+                {t('dash.weatherNone')} <Link to="/settings">{t('dash.weatherSetup')}</Link>
               </p>
             ) : (
               <>
                 <div className="hero-number">{state.weather.scale} %</div>
                 <p className="muted small">
-                  Aktuelle Laufzeit-Skalierung ({state.weather.provider})
-                  {state.weather.fetchedAt > 0 && <> · Stand {fmtClock(state.weather.fetchedAt)}</>}
-                  {!state.weather.valid && ' · keine gültigen Daten, es gilt 100 %'}
+                  {t('dash.weatherScaleLine', { provider: state.weather.provider })}
+                  {state.weather.fetchedAt > 0 &&
+                    t('dash.weatherAsOf', { t: fmtClock(state.weather.fetchedAt) })}
+                  {!state.weather.valid && t('dash.weatherInvalid')}
                 </p>
               </>
             ))}
@@ -253,10 +259,10 @@ export default function Dashboard() {
       </div>
 
       <div className="card">
-        <h2>Heute</h2>
+        <h2>{t('dash.today')}</h2>
         {timeline.length === 0 ? (
           <p className="muted">
-            Heute {state?.schedulerEnabled ? 'keine Läufe' : '— die Automatik ist ausgeschaltet'}.
+            {state?.schedulerEnabled ? t('dash.todayNone') : t('dash.todayAutoOff')}
           </p>
         ) : (
           <ul className="timeline">
@@ -274,18 +280,18 @@ export default function Dashboard() {
 
       <div className="card">
         <div className="row spread">
-          <h2>Nächste Läufe</h2>
-          <Link to="/schedules">Programme verwalten</Link>
+          <h2>{t('dash.nextRuns')}</h2>
+          <Link to="/schedules">{t('dash.manage')}</Link>
         </div>
         {nextRuns.length === 0 ? (
-          <p className="muted">Keine anstehenden Läufe.</p>
+          <p className="muted">{t('dash.noUpcoming')}</p>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Programm</th>
-                  <th>Nächster Lauf</th>
+                  <th>{t('dash.program')}</th>
+                  <th>{t('dash.nextRun')}</th>
                 </tr>
               </thead>
               <tbody>

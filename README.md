@@ -25,6 +25,7 @@ Die Modernisierung von Workflow, UI und Prozessen (M7–M12) ist in
   Stopp-Taste, Sensoren), Webhook-Benachrichtigungen, Backup/Restore im UI
 - Zyklus & Sickern, Pumpen-Vor-/Nachlauf, Monatsprofil für die saisonale Anpassung
 - Optionaler Login mit API-Tokens; als PWA auf dem Homescreen installierbar
+- Zweisprachige Oberfläche (Deutsch/English), umschaltbar in den Einstellungen
 - Hardware-Backends: `none` (Test), externes Skript (kompatibel zum Original),
   GPIO direkt aktiv-high/-low (Linux gpiochip)
 - REST-API (`/api/...`) + eingebettetes React-Frontend (deutsch, hell/dunkel)

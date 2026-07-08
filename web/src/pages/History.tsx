@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, Grouping, LogEntry, Zone, ZoneSeries } from '../api'
-import { MONTHS, WEEKDAYS, fmtDate, fmtSeconds, scheduleLabel } from '../util'
+import { MsgKey, months, t, weekdays } from '../i18n'
+import { fmtDate, fmtSeconds, scheduleLabel } from '../util'
 
-const RANGES = [
-  { label: '7 Tage', days: 7 },
-  { label: '30 Tage', days: 30 },
-  { label: '12 Monate', days: 365 },
+const RANGES: { label: MsgKey; days: number }[] = [
+  { label: 'hist.range7', days: 7 },
+  { label: 'hist.range30', days: 30 },
+  { label: 'hist.range365', days: 365 },
 ]
 
-const VIEWS: { label: string; group: Grouping }[] = [
-  { label: 'Tabelle', group: 'none' },
-  { label: 'Nach Stunde', group: 'hour' },
-  { label: 'Nach Wochentag', group: 'day' },
-  { label: 'Nach Monat', group: 'month' },
+const VIEWS: { label: MsgKey; group: Grouping }[] = [
+  { label: 'hist.viewTable', group: 'none' },
+  { label: 'hist.viewHour', group: 'hour' },
+  { label: 'hist.viewDay', group: 'day' },
+  { label: 'hist.viewMonth', group: 'month' },
 ]
 
 function bucketDomain(group: Grouping): number[] {
@@ -22,15 +23,15 @@ function bucketDomain(group: Grouping): number[] {
 }
 
 function bucketLabel(group: Grouping, b: number): string {
-  if (group === 'hour') return `${b} Uhr`
-  if (group === 'day') return WEEKDAYS[b]
-  return MONTHS[b - 1]
+  if (group === 'hour') return t('hist.hourLabel', { h: b })
+  if (group === 'day') return weekdays()[b]
+  return months()[b - 1]
 }
 
 function bucketTick(group: Grouping, b: number): string {
   if (group === 'hour') return b % 3 === 0 ? String(b) : ''
-  if (group === 'day') return WEEKDAYS[b]
-  return MONTHS[b - 1]
+  if (group === 'day') return weekdays()[b]
+  return months()[b - 1]
 }
 
 interface Tip {
@@ -100,7 +101,7 @@ function BarChart({
     })
   }
 
-  if (!hasData) return <p className="muted">Keine Daten im gewählten Zeitraum.</p>
+  if (!hasData) return <p className="muted">{t('hist.noData')}</p>
 
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
@@ -108,7 +109,7 @@ function BarChart({
         viewBox={`0 0 ${W} ${H}`}
         style={{ width: '100%', height: 'auto', display: 'block' }}
         role="img"
-        aria-label="Bewässerungsdauer pro Zeitraum"
+        aria-label={t('hist.chartAria')}
       >
         {gridMinutes.map((m) => (
           <g key={m}>
@@ -178,7 +179,7 @@ function BarChart({
       {tip && (
         <div className="chart-tip" style={{ left: tip.x, top: tip.y }}>
           <strong>{tip.title}</strong>
-          <div>Gesamt: {fmtSeconds(tip.total)}</div>
+          <div>{t('hist.total', { t: fmtSeconds(tip.total) })}</div>
           {tip.perZone.map((z) => (
             <div key={z.name} className="muted">
               {z.name}: {fmtSeconds(z.seconds)}
@@ -240,7 +241,14 @@ export default function History() {
     if (!entries) return
     const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
     const rows = [
-      ['Start', 'Zone', 'Ausloeser', 'Sekunden', 'Saisonal %', 'Wetter %'],
+      [
+        t('hist.colStart'),
+        t('hist.colZone'),
+        t('hist.colTrigger'),
+        'Seconds',
+        'Seasonal %',
+        'Weather %',
+      ],
       ...entries.map((e) => [
         new Date(e.start * 1000).toISOString(),
         zoneNames.get(e.zoneId) ?? `Zone ${e.zoneId + 1}`,
@@ -255,47 +263,47 @@ export default function History() {
     })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = 'bewaesserung-verlauf.csv'
+    a.download = 'sprinklergo-history.csv'
     a.click()
     URL.revokeObjectURL(a.href)
   }
 
   return (
     <>
-      <h1>Verlauf</h1>
+      <h1>{t('hist.title')}</h1>
       {error && <div className="banner error">{error}</div>}
 
       <div className="row" style={{ marginBottom: 14 }}>
         <select
           value={rangeDays}
           onChange={(e) => setRangeDays(Number(e.target.value))}
-          aria-label="Zeitraum"
+          aria-label={t('hist.rangeAria')}
         >
           {RANGES.map((r) => (
             <option key={r.days} value={r.days}>
-              {r.label}
+              {t(r.label)}
             </option>
           ))}
         </select>
         <select
           value={group}
           onChange={(e) => setGroup(e.target.value as Grouping)}
-          aria-label="Ansicht"
+          aria-label={t('hist.viewAria')}
         >
           {VIEWS.map((v) => (
             <option key={v.group} value={v.group}>
-              {v.label}
+              {t(v.label)}
             </option>
           ))}
         </select>
         {group === 'none' && entries && entries.length > 0 && (
-          <button onClick={exportCSV}>Als CSV exportieren</button>
+          <button onClick={exportCSV}>{t('hist.exportCsv')}</button>
         )}
       </div>
 
       {group !== 'none' && series && (
         <div className="card">
-          <h2>Bewässerungsdauer gesamt</h2>
+          <h2>{t('hist.chartTitle')}</h2>
           <BarChart series={series} group={group} zoneNames={zoneNames} />
         </div>
       )}
@@ -303,17 +311,17 @@ export default function History() {
       {group === 'none' && entries && (
         <div className="card">
           {entries.length === 0 ? (
-            <p className="muted">Keine Einträge im gewählten Zeitraum.</p>
+            <p className="muted">{t('hist.noEntries')}</p>
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Start</th>
-                    <th>Zone</th>
-                    <th>Auslöser</th>
-                    <th className="num">Dauer</th>
-                    <th className="num">Anpassung</th>
+                    <th>{t('hist.colStart')}</th>
+                    <th>{t('hist.colZone')}</th>
+                    <th>{t('hist.colTrigger')}</th>
+                    <th className="num">{t('hist.colDuration')}</th>
+                    <th className="num">{t('hist.colAdjust')}</th>
                   </tr>
                 </thead>
                 <tbody>

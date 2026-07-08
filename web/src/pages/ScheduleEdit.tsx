@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SchedulePayload, Zone, api } from '../api'
 import { Stepper, useToast } from '../components'
-import { WEEKDAYS, fmtTime, nextRunPreview, parseTime } from '../util'
+import { locale, t, weekdays } from '../i18n'
+import { fmtTime, nextRunPreview, parseTime } from '../util'
 
 interface TimeSlot {
   enabled: boolean
@@ -25,9 +26,9 @@ const EMPTY: SchedulePayload = {
 
 function previewLabel(p: { day: Date; inDays: number; times: number[] }): string {
   const times = p.times.map(fmtTime).join(', ')
-  if (p.inDays === 0) return `Heute ${times}`
-  if (p.inDays === 1) return `Morgen ${times}`
-  const day = p.day.toLocaleDateString('de-DE', {
+  if (p.inDays === 0) return `${t('time.today')} ${times}`
+  if (p.inDays === 1) return `${t('time.tomorrow')} ${times}`
+  const day = p.day.toLocaleDateString(locale(), {
     weekday: 'short',
     day: '2-digit',
     month: '2-digit',
@@ -127,7 +128,7 @@ export default function ScheduleEdit() {
   const save = async () => {
     for (const s of slots) {
       if (s.enabled && parseTime(s.value) === null) {
-        setError(`Ungültige Startzeit: ${s.value}`)
+        setError(t('edit.invalidTime', { v: s.value }))
         return
       }
     }
@@ -135,23 +136,23 @@ export default function ScheduleEdit() {
     try {
       if (isNew) await api.createSchedule(payload)
       else await api.updateSchedule(Number(id), payload)
-      toast(isNew ? 'Programm angelegt.' : 'Programm gespeichert.')
+      toast(isNew ? t('edit.created') : t('edit.saved'))
       nav('/schedules')
     } catch (e) {
       setError((e as Error).message)
     }
   }
 
-  if (!loaded && !error) return <p className="muted">Lade…</p>
+  if (!loaded && !error) return <p className="muted">{t('common.loading')}</p>
 
   return (
     <>
-      <h1>{isNew ? 'Neues Programm' : 'Programm bearbeiten'}</h1>
+      <h1>{isNew ? t('edit.titleNew') : t('edit.titleEdit')}</h1>
       {error && <div className="banner error">{error}</div>}
 
       <div className="card">
         <label className="field">
-          <span>Name</span>
+          <span>{t('edit.name')}</span>
           <input
             type="text"
             value={form.name}
@@ -166,21 +167,21 @@ export default function ScheduleEdit() {
               checked={form.enabled}
               onChange={(e) => patch({ enabled: e.target.checked })}
             />
-            Programm aktiv
+            {t('edit.active')}
           </label>
-          <label className="checkbox" title="Laufzeiten anhand der Wetterdaten skalieren">
+          <label className="checkbox" title={t('edit.weatherAdjustTitle')}>
             <input
               type="checkbox"
               checked={form.weatherAdjust}
               onChange={(e) => patch({ weatherAdjust: e.target.checked })}
             />
-            Wetter-Anpassung
+            {t('edit.weatherAdjust')}
           </label>
         </div>
       </div>
 
       <div className="card">
-        <h2>Wann</h2>
+        <h2>{t('edit.when')}</h2>
         <div className="row" style={{ marginBottom: 12 }}>
           <label className="checkbox">
             <input
@@ -189,7 +190,7 @@ export default function ScheduleEdit() {
               checked={form.kind === 'weekly'}
               onChange={() => patch({ kind: 'weekly' })}
             />
-            Wochentage
+            {t('edit.weekdays')}
           </label>
           <label className="checkbox">
             <input
@@ -198,16 +199,16 @@ export default function ScheduleEdit() {
               checked={form.kind === 'interval'}
               onChange={() => patch({ kind: 'interval' })}
             />
-            Intervall
+            {t('edit.interval')}
           </label>
         </div>
 
         {form.kind === 'weekly' ? (
           <>
             <div className="daypick" style={{ marginBottom: 12 }}>
-              {WEEKDAYS.map((d, i) => (
+              {weekdays().map((d, i) => (
                 <button
-                  key={d}
+                  key={i}
                   type="button"
                   className={form.days[i] ? 'sel' : ''}
                   onClick={() => toggleDay(i)}
@@ -217,20 +218,20 @@ export default function ScheduleEdit() {
               ))}
             </div>
             <label className="field">
-              <span>Einschränkung (Tag im Monat)</span>
+              <span>{t('edit.restriction')}</span>
               <select
                 value={form.restriction}
                 onChange={(e) => patch({ restriction: Number(e.target.value) })}
               >
-                <option value={0}>keine</option>
-                <option value={1}>nur ungerade Tage</option>
-                <option value={2}>nur gerade Tage</option>
+                <option value={0}>{t('edit.restrictionNone')}</option>
+                <option value={1}>{t('edit.restrictionOdd')}</option>
+                <option value={2}>{t('edit.restrictionEven')}</option>
               </select>
             </label>
           </>
         ) : (
           <label className="field">
-            <span>Alle N Tage</span>
+            <span>{t('edit.everyN')}</span>
             <input
               type="number"
               min={1}
@@ -241,7 +242,7 @@ export default function ScheduleEdit() {
           </label>
         )}
 
-        <h2 style={{ marginTop: 16 }}>Startzeiten (bis zu 4)</h2>
+        <h2 style={{ marginTop: 16 }}>{t('edit.startTimes')}</h2>
         <div className="row">
           {slots.map((s, i) => (
             <label className="checkbox" key={i} style={{ gap: 4 }}>
@@ -265,18 +266,16 @@ export default function ScheduleEdit() {
         </div>
 
         <p className="muted small" style={{ marginTop: 12 }}>
-          Nächste Läufe:{' '}
-          {preview.length === 0
-            ? 'keine (Programm aus, keine Startzeit oder kein passender Tag)'
-            : preview.map(previewLabel).join(' · ')}
+          {t('edit.preview')}{' '}
+          {preview.length === 0 ? t('edit.previewNone') : preview.map(previewLabel).join(' · ')}
         </p>
       </div>
 
       <div className="card">
         <div className="row spread">
-          <h2>Laufzeit je Zone (Minuten, 0 = überspringen)</h2>
+          <h2>{t('edit.durations')}</h2>
           <span className="muted small">
-            Gesamt: <strong>{totalMinutes} min</strong> vor Anpassungen
+            {t('edit.total')} <strong>{totalMinutes} min</strong> {t('edit.beforeAdjust')}
           </span>
         </div>
         {enabledZones.map((z) => (
@@ -286,19 +285,17 @@ export default function ScheduleEdit() {
               value={form.durations[z.id] ?? 0}
               min={0}
               max={255}
-              label={`Laufzeit ${z.name}`}
+              label={t('edit.zoneRuntimeAria', { name: z.name })}
               onChange={(v) => setDuration(z.id, v)}
             />
           </div>
         ))}
-        {enabledZones.length === 0 && (
-          <p className="muted">Keine aktiven Zonen — erst unter „Zonen&quot; welche aktivieren.</p>
-        )}
+        {enabledZones.length === 0 && <p className="muted">{t('edit.noActiveZones')}</p>}
 
-        <h2 style={{ marginTop: 16 }}>Zyklus &amp; Sickern (optional)</h2>
+        <h2 style={{ marginTop: 16 }}>{t('edit.cycleSoak')}</h2>
         <div className="row" style={{ gap: 24 }}>
           <label className="field">
-            <span>Max. Zyklusdauer (Minuten, 0 = aus)</span>
+            <span>{t('edit.cycleMax')}</span>
             <input
               type="number"
               min={0}
@@ -308,7 +305,7 @@ export default function ScheduleEdit() {
             />
           </label>
           <label className="field">
-            <span>Sickerpause je Zone (Minuten)</span>
+            <span>{t('edit.soak')}</span>
             <input
               type="number"
               min={0}
@@ -319,17 +316,14 @@ export default function ScheduleEdit() {
             />
           </label>
         </div>
-        <p className="muted small">
-          Teilt lange Laufzeiten in Zyklen auf, damit das Wasser einsickern kann statt abzufließen.
-          Die Zonen wechseln sich ab; muss eine Zone noch sickern, pausiert die Bewässerung.
-        </p>
+        <p className="muted small">{t('edit.cycleHint')}</p>
       </div>
 
       <div className="row">
         <button className="primary" onClick={save}>
-          Speichern
+          {t('common.save')}
         </button>
-        <button onClick={() => nav('/schedules')}>Abbrechen</button>
+        <button onClick={() => nav('/schedules')}>{t('common.cancel')}</button>
       </div>
     </>
   )

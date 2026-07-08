@@ -125,12 +125,16 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, id string, maxAge int) 
 
 // GET /api/auth — status probe; token names only for authenticated callers.
 func (s *Server) getAuth(w http.ResponseWriter, r *http.Request) {
-	auth := s.cfg.Snapshot().Auth
+	cfg := s.cfg.Snapshot()
+	auth := cfg.Auth
 	loggedIn := !auth.Enabled || s.isAuthed(r)
 	dto := map[string]any{
 		"enabled":     auth.Enabled,
 		"loggedIn":    loggedIn,
 		"hasPassword": auth.PasswordHash != "",
+		// The login page renders before any authenticated call succeeds,
+		// so the language rides along on the open status probe.
+		"language": cfg.Settings.Language,
 	}
 	if loggedIn {
 		tokens := []map[string]any{}
