@@ -248,5 +248,5 @@ vor API/UI fertiggestellt und getestet — gegen simulierte Zeit, nicht Echtzeit
 1. **Sprache Go** angenommen (Projektverzeichnis heißt `sprinklerGo`).
 2. **Zielplattform** Raspberry Pi (64-bit OS) angenommen; Entwicklung/Betrieb auf macOS mit mock-Backend möglich.
 3. Max. 15 Zonen / 10 Programme werden als konfigurierbare Defaults übernommen (keine harten Compile-Zeit-Limits mehr).
-4. Schedules über Mitternacht: zunächst wie Original (bekannte Einschränkung), sauberer Fix als Phase-2-Kandidat.
+4. Schedules über Mitternacht: zunächst wie Original (bekannte Einschränkung), sauberer Fix als Phase-2-Kandidat. *(In Phase 2/M8 behoben — Events tragen absolute Zeiten.)*
 5. Anzeige 24-h-Format als UI-Einstellung statt Compile-Flag.

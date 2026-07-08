@@ -42,8 +42,10 @@ jobs:
       - name: Build E2E binary
         run: go build -o bin/sprinklerd-e2e ./cmd/sprinklerd
 
+      # Kein --with-deps: ubuntu-latest bringt die Browser-Systemlibs mit,
+      # und apt-Aufrufe scheitern gelegentlich an kaputten Runner-Repos.
       - name: E2E tests (Playwright)
         working-directory: web
         run: |
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           npx playwright test

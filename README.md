@@ -159,8 +159,12 @@ zur Laufzeit unter `GET /api/openapi.json`.
 | `POST /api/stop` | Alles stoppen |
 | `PUT /api/system/run` `{"enabled":true}` | Scheduler global an/aus |
 | `GET/PUT /api/settings` | Einstellungen |
+| `PUT /api/rain-delay` `{"hours":24}` | Regenpause setzen/aufheben (0 = aus) |
+| `GET /api/events` | Live-Status als Server-Sent Events |
 | `GET /api/weather/check` | Wetter-Diagnose |
 | `GET /api/logs?group=none|hour|day|month&start=&end=` | Verlauf |
+| `GET /api/backup` · `POST /api/restore` | Konfiguration sichern/wiederherstellen |
+| `GET/PUT /api/auth` · `/api/auth/login|logout|password|tokens` | Anmeldung & API-Tokens |
 
 Der Verlauf wird gemäß der Einstellung „Verlauf aufbewahren" automatisch
 bereinigt (Standard: 24 Monate, 0 = unbegrenzt).
