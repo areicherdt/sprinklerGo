@@ -18,6 +18,7 @@ var migrations = []migration{
 	migrateV3AddIntegration,
 	migrateV4AddSeasonalProfileAndAuth,
 	migrateV5AddLanguage,
+	migrateV6AddMetrics,
 }
 
 // v1 → v2: introduce settings.logRetentionMonths (default 24; 0 = unlimited).
@@ -93,6 +94,15 @@ func migrateV5AddLanguage(cfg map[string]any) error {
 	}
 	if _, exists := settings["language"]; !exists {
 		settings["language"] = "de"
+	}
+	return nil
+}
+
+// v6 → v7: metrics endpoint flag, off by default (the JSON zero value), so
+// only the version bump is required.
+func migrateV6AddMetrics(cfg map[string]any) error {
+	if _, ok := cfg["settings"].(map[string]any); !ok {
+		return errors.New("config has no settings object")
 	}
 	return nil
 }

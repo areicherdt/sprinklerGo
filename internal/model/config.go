@@ -21,7 +21,7 @@ const NumOutputs = MaxZones + 1 // pump/master + 15 zones
 
 // ConfigVersion is the current config.json schema version. Older documents
 // are upgraded by the migration chain in the store package.
-const ConfigVersion = 6
+const ConfigVersion = 7
 
 type Settings struct {
 	WebPort    int        `json:"webPort"`
@@ -49,6 +49,8 @@ type Settings struct {
 	// Language selects the UI language ("de" or "en"); also used for the
 	// Home Assistant entity names.
 	Language string `json:"language"`
+	// MetricsEnabled exposes GET /metrics in Prometheus format.
+	MetricsEnabled bool `json:"metricsEnabled"`
 	// RunSchedules is the global scheduler on/off switch.
 	RunSchedules bool `json:"runSchedules"`
 	// LogRetentionMonths prunes zone log entries older than this many
@@ -135,6 +137,13 @@ func (s *Settings) Validate() error {
 	case "openmeteo":
 		if !validLatLon(s.Location) {
 			return fmt.Errorf("open-meteo needs location as \"latitude,longitude\"")
+		}
+	case "openweather":
+		if !validLatLon(s.Location) {
+			return fmt.Errorf("open-weather needs location as \"latitude,longitude\"")
+		}
+		if s.APISecret == "" {
+			return fmt.Errorf("open-weather needs an API key (API secret)")
 		}
 	default:
 		return fmt.Errorf("unknown weatherProvider %q", s.WeatherProvider)

@@ -30,6 +30,8 @@ type Server struct {
 	weather  *weather.Cache
 	static   fs.FS
 	sessions *sessionStore
+	// metrics serves /metrics when settings.MetricsEnabled; may be nil.
+	metrics http.Handler
 	// applyOutput rebuilds the hardware backend after output-relevant
 	// settings changed. May be nil (tests).
 	applyOutput func(model.Settings) error
@@ -44,6 +46,10 @@ func New(version string, cfg *store.ConfigStore, logs *store.LogStore, eng *engi
 		static: static, sessions: newSessionStore(), applyOutput: applyOutput,
 	}
 }
+
+// SetMetricsHandler registers the Prometheus handler served at /metrics when
+// the setting is enabled.
+func (s *Server) SetMetricsHandler(h http.Handler) { s.metrics = h }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -82,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "unknown API route")
 	})
+	mux.HandleFunc("GET /metrics", s.getMetrics)
 
 	if s.static != nil {
 		mux.Handle("/", spaHandler(s.static))
@@ -224,6 +231,15 @@ func (s *Server) stateDTO() stateDTO {
 
 func (s *Server) getState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.stateDTO())
+}
+
+// getMetrics serves Prometheus metrics when enabled in the settings.
+func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.metrics == nil || !s.cfg.Snapshot().Settings.MetricsEnabled {
+		writeErr(w, http.StatusNotFound, "metrics are disabled")
+		return
+	}
+	s.metrics.ServeHTTP(w, r)
 }
 
 // putRainDelay sets or clears the rain delay ({"hours": 0} clears it).

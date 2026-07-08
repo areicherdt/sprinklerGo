@@ -59,6 +59,8 @@ func ForSettings(s model.Settings) Provider {
 	switch s.WeatherProvider {
 	case "openmeteo":
 		return NewOpenMeteo()
+	case "openweather":
+		return NewOpenWeather()
 	default:
 		return None{}
 	}

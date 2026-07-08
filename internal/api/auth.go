@@ -81,7 +81,8 @@ func tokenDigest(token string) string {
 // status probe are always allowed.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") || !s.cfg.Snapshot().Auth.Enabled {
+		gated := strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/metrics"
+		if !gated || !s.cfg.Snapshot().Auth.Enabled {
 			next.ServeHTTP(w, r)
 			return
 		}

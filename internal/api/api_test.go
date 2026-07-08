@@ -15,6 +15,7 @@ import (
 
 	"sprinklergo/internal/engine"
 	"sprinklergo/internal/hardware"
+	"sprinklergo/internal/model"
 	"sprinklergo/internal/store"
 )
 
@@ -532,6 +533,44 @@ func TestAuthFlow(t *testing.T) {
 	}
 	if code, _ := e.call(t, "GET", "/api/state", nil); code != 200 {
 		t.Errorf("after disabling auth the API must be open again, got %d", code)
+	}
+}
+
+func TestMetricsGatedByFlag(t *testing.T) {
+	e := newEnv(t)
+	// Give the server a metrics handler.
+	srv := New("test", e.cfg, e.logs, engine.New(e.cfg, hardware.NewMock(), e.logs, nil, nil), nil, nil, nil)
+	srv.SetMetricsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("sprinklergo_build_info 1\n"))
+	}))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Disabled by default -> 404.
+	resp, err := http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("metrics disabled: want 404, got %d", resp.StatusCode)
+	}
+
+	// Enable and scrape.
+	if err := e.cfg.Update(func(c *model.Config) error {
+		c.Settings.MetricsEnabled = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = http.Get(ts.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(string(body), "sprinklergo_build_info") {
+		t.Errorf("enabled metrics: %d %q", resp.StatusCode, body)
 	}
 }
 

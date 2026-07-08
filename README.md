@@ -19,7 +19,9 @@ Die Modernisierung von Workflow, UI und Prozessen (M7–M12) ist in
   minutenweise Verschiebung bei Kollisionen)
 - Manuellbetrieb, Schnellstart (Programm sofort oder Ad-hoc-Laufzeiten)
 - Verlauf in SQLite mit Tabellen- und Diagramm-Ansicht
-- Wetter-Anpassung über **Open-Meteo** (kostenlos, kein API-Key) mit Diagnose-Seite
+- Wetter-Anpassung über **Open-Meteo** (kostenlos, kein API-Key) oder
+  **OpenWeather** (One Call 3.0, API-Key nötig), mit Diagnose-Seite
+- Optionale **Prometheus-Metriken** unter `/metrics`
 - Regenpause, Timer für manuelle Läufe, Live-Updates per SSE
 - **MQTT mit Home-Assistant-Discovery** (Zonen als Schalter, Automatik, Regenpause,
   Stopp-Taste, Sensoren), Webhook-Benachrichtigungen, Backup/Restore im UI
@@ -132,6 +134,24 @@ HTTPS, z. B. Caddy:
 sprinkler.example.com {
     reverse_proxy 127.0.0.1:8080
 }
+```
+
+## Monitoring (Prometheus)
+
+Unter Einstellungen → System „Prometheus-Metriken bereitstellen" aktivieren.
+Dann liefert `GET /metrics` u. a. `sprinklergo_runs_started_total`,
+`sprinklergo_runs_finished_total`, `sprinklergo_errors_total{kind=…}`,
+`sprinklergo_weather_scale_percent`, `sprinklergo_scheduler_enabled` und
+`sprinklergo_active_zone`. Ist die Anmeldung aktiv, braucht der Scraper ein
+API-Token:
+
+```yaml
+scrape_configs:
+  - job_name: sprinklergo
+    static_configs:
+      - targets: ['sprinkler.local:8080']
+    authorization:
+      credentials: '<API-Token>'
 ```
 
 ## Home Assistant anbinden

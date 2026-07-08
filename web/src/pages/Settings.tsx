@@ -340,6 +340,7 @@ export default function Settings() {
           >
             <option value="none">{t('set.providerNone')}</option>
             <option value="openmeteo">{t('set.providerOpenMeteo')}</option>
+            <option value="openweather">{t('set.providerOpenWeather')}</option>
           </select>
         </label>
         {form.weatherProvider !== 'none' && (
@@ -350,6 +351,17 @@ export default function Settings() {
               value={form.location}
               style={{ maxWidth: 300 }}
               onChange={(e) => patch({ location: e.target.value })}
+            />
+          </label>
+        )}
+        {form.weatherProvider === 'openweather' && (
+          <label className="field">
+            <span>{t('set.apiKey')}</span>
+            <input
+              type="password"
+              value={form.apiSecret}
+              style={{ width: '100%', maxWidth: 380 }}
+              onChange={(e) => patch({ apiSecret: e.target.value })}
             />
           </label>
         )}
@@ -547,8 +559,19 @@ export default function Settings() {
           />
           {t('set.clock24')}
         </label>
-        <p className="muted small" style={{ marginTop: 8 }}>
+        <p className="muted small" style={{ marginTop: 8, marginBottom: 12 }}>
           {t('set.exampleFmt', { t: fmtSeconds(4980) })}
+        </p>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={form.metricsEnabled}
+            onChange={(e) => patch({ metricsEnabled: e.target.checked })}
+          />
+          {t('set.metrics')}
+        </label>
+        <p className="muted small" style={{ marginTop: 8 }}>
+          {t('set.metricsHint')}
         </p>
       </div>
 

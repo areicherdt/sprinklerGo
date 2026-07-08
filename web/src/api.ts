@@ -96,6 +96,7 @@ export interface Settings {
   location: string
   clock24h: boolean
   language: 'de' | 'en'
+  metricsEnabled: boolean
   runSchedules: boolean
   logRetentionMonths: number
   manualTimerMinutes: number

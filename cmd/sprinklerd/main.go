@@ -19,6 +19,7 @@ import (
 	"sprinklergo/internal/api"
 	"sprinklergo/internal/engine"
 	"sprinklergo/internal/hardware"
+	"sprinklergo/internal/metrics"
 	"sprinklergo/internal/model"
 	"sprinklergo/internal/mqttbridge"
 	"sprinklergo/internal/notify"
@@ -78,10 +79,23 @@ func run(configPath, dbPath string, portOverride int) error {
 
 	eng := engine.New(cfg, out, logs, wcache.Scale, nil)
 
-	// Events (run finished, errors, …) go out via webhook if configured.
+	// Prometheus metrics: counters fed by the event stream, gauges sampled
+	// live at scrape time.
+	promMetrics := metrics.New(version, metrics.Live{
+		SchedulerEnabled: func() bool { return cfg.Snapshot().Settings.RunSchedules },
+		RainDelayActive: func() bool {
+			d := cfg.Snapshot().RainDelayUntil
+			return d > 0 && time.Now().Unix() < d
+		},
+		WeatherScale: wcache.Scale,
+		ActiveZone:   func() int { return eng.State().ZoneID },
+	})
+
+	// Events (run finished, errors, …) go out via webhook and into metrics.
 	webhook := notify.NewWebhook(func() string { return cfg.Snapshot().Settings.WebhookURL })
-	eng.SetEventSink(webhook)
-	wcache.SetEventSink(webhook)
+	sink := notify.Fanout{webhook, promMetrics}
+	eng.SetEventSink(sink)
+	wcache.SetEventSink(sink)
 
 	// applyOutput swaps the hardware backend when output settings change.
 	var outMu sync.Mutex
@@ -107,6 +121,7 @@ func run(configPath, dbPath string, portOverride int) error {
 		return err
 	}
 	srv := api.New(version, cfg, logs, eng, wcache, staticFS, applyOutput)
+	srv.SetMetricsHandler(promMetrics.Handler())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -51,6 +51,9 @@ func TestMigrateRawV1ToCurrent(t *testing.T) {
 	if cfg.Settings.SeasonalMode != "global" {
 		t.Errorf("seasonalMode = %q, want default global", cfg.Settings.SeasonalMode)
 	}
+	if cfg.Settings.MetricsEnabled {
+		t.Errorf("metricsEnabled = true, want default false")
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("migrated config invalid: %v", err)
 	}
@@ -137,6 +140,7 @@ func stripField(t *testing.T, s model.Settings) map[string]any {
 	delete(m, "language")
 	delete(m, "seasonalMode")
 	delete(m, "seasonalMonthly")
+	delete(m, "metricsEnabled")
 	return m
 }
 
