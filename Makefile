@@ -17,6 +17,10 @@ build:
 arm64:
 	GOOS=linux GOARCH=arm64 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/sprinklerd-arm64 ./cmd/sprinklerd
 
+# Raspberry Pi, 32-bit OS (armv6 läuft auf Pi 1/Zero bis Pi 4)
+armv6:
+	GOOS=linux GOARCH=arm GOARM=6 $(GO) build -ldflags "$(LDFLAGS)" -o $(BIN)/sprinklerd-armv6 ./cmd/sprinklerd
+
 test:
 	$(GO) vet ./...
 	$(GO) test ./...

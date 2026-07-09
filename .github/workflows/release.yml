@@ -57,12 +57,15 @@ jobs:
           mkdir -p dist
           LDFLAGS="-X main.version=${GITHUB_REF_NAME}"
           GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/sprinklerd-linux-arm64 ./cmd/sprinklerd
+          # 32-bit Raspberry Pi OS (armv6 läuft auf Pi 1/Zero bis Pi 4)
+          GOOS=linux GOARCH=arm GOARM=6 go build -ldflags "$LDFLAGS" -o dist/sprinklerd-linux-armv6 ./cmd/sprinklerd
           GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/sprinklerd-linux-amd64 ./cmd/sprinklerd
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/sprinklerd-linux-arm64
+            dist/sprinklerd-linux-armv6
             dist/sprinklerd-linux-amd64
             deploy/sprinklerd.service
           generate_release_notes: true

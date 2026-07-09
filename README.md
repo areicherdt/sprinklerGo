@@ -60,8 +60,13 @@ Flags: `-config` Konfigurationsdatei · `-db` Log-Datenbank · `-port` Port-Over
 
 ## Installation auf dem Raspberry Pi (systemd)
 
+**Welches Binary?** Auf dem Pi `uname -m` ausführen: `aarch64` →
+`sprinklerd-linux-arm64`; `armv7l` oder `armv6l` (32-bit Raspberry Pi OS) →
+`sprinklerd-linux-armv6`. Ein arm64-Binary auf einem 32-bit-System scheitert
+mit „Exec format error".
+
 ```sh
-make arm64
+make arm64        # bzw. make armv6 für 32-bit Raspberry Pi OS
 scp bin/sprinklerd-arm64 pi@<host>:/tmp/sprinklerd
 scp deploy/sprinklerd.service pi@<host>:/tmp/
 
