@@ -159,6 +159,7 @@ export default function Settings() {
   const [notice, setNotice] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
   const [check, setCheck] = useState<WeatherCheck | null>(null)
+  const [movedTo, setMovedTo] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
 
@@ -199,7 +200,11 @@ export default function Settings() {
         return
       }
       if (res.outputError) setWarn(t('set.savedOutputWarn', { err: res.outputError }))
-      else if (res.restartRequired) setNotice(t('set.savedRestart'))
+      else if (res.portChanged && res.webPort) {
+        // The server already moved; this origin goes dark in a few seconds.
+        const target = `${window.location.protocol}//${window.location.hostname}:${res.webPort}/settings`
+        setMovedTo(target)
+      } else if (res.restartRequired) setNotice(t('set.savedRestart'))
       else toast(t('set.saved'))
     } catch (e) {
       setError((e as Error).message)
@@ -221,6 +226,11 @@ export default function Settings() {
       {error && <div className="banner error">{error}</div>}
       {notice && <div className="banner info">{notice}</div>}
       {warn && <div className="banner warn">{warn}</div>}
+      {movedTo && (
+        <div className="banner info">
+          {t('set.portMoved')} <a href={movedTo}>{movedTo}</a>
+        </div>
+      )}
 
       <div className="card">
         <h2>{t('set.watering')}</h2>

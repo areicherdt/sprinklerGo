@@ -4,12 +4,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -25,6 +23,7 @@ import (
 	"sprinklergo/internal/notify"
 	"sprinklergo/internal/store"
 	"sprinklergo/internal/weather"
+	"sprinklergo/internal/websrv"
 	"sprinklergo/web"
 )
 
@@ -123,6 +122,10 @@ func run(configPath, dbPath string, portOverride int) error {
 	srv := api.New(version, cfg, logs, eng, wcache, staticFS, applyOutput)
 	srv.SetMetricsHandler(promMetrics.Handler())
 
+	// The HTTP server can move to a new port at runtime (settings change).
+	httpSrv := websrv.New(srv.Handler())
+	srv.SetWebPortApplier(httpSrv.Swap)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	eng.Start(ctx)
@@ -146,22 +149,24 @@ func run(configPath, dbPath string, portOverride int) error {
 		}
 	}()
 
-	addr := fmt.Sprintf(":%d", settings.WebPort)
+	port := settings.WebPort
 	if portOverride != 0 {
-		addr = fmt.Sprintf(":%d", portOverride)
+		port = portOverride
 	}
-	httpSrv := &http.Server{Addr: addr, Handler: srv.Handler()}
-	go func() {
-		<-ctx.Done()
-		shCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		httpSrv.Shutdown(shCtx)
-	}()
+	if err := httpSrv.Start(port); err != nil {
+		return fmt.Errorf("listen on port %d: %w", port, err)
+	}
+	slog.Info("sprinklerd started", "version", version, "addr", httpSrv.Addr(), "config", configPath)
 
-	slog.Info("sprinklerd started", "version", version, "addr", addr, "config", configPath)
-	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+	select {
+	case <-ctx.Done():
+	case err := <-httpSrv.Err():
+		slog.Error("http server failed", "err", err)
+		stop()
 	}
+	shCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	httpSrv.Shutdown(shCtx)
+	cancel()
 
 	// Safety: make sure every valve is off before exiting.
 	eng.Shutdown()

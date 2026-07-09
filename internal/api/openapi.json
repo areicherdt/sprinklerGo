@@ -483,7 +483,9 @@
                   "type": "object",
                   "properties": {
                     "ok": { "type": "boolean" },
-                    "restartRequired": { "type": "boolean", "description": "true, wenn der Web-Port geändert wurde" },
+                    "portChanged": { "type": "boolean", "description": "true, wenn der Server bereits auf den neuen Port umgezogen ist" },
+                    "webPort": { "type": "integer", "description": "der neue Port (bei portChanged)" },
+                    "restartRequired": { "type": "boolean", "description": "Fallback ohne Laufzeit-Portwechsel" },
                     "outputError": { "type": "string", "description": "gesetzt, wenn das Hardware-Backend nicht initialisiert werden konnte" }
                   }
                 }

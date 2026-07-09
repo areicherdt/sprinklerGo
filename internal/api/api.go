@@ -35,6 +35,9 @@ type Server struct {
 	// applyOutput rebuilds the hardware backend after output-relevant
 	// settings changed. May be nil (tests).
 	applyOutput func(model.Settings) error
+	// applyWebPort moves the HTTP server to a new port at runtime; when nil
+	// (tests) a port change falls back to "restart required".
+	applyWebPort func(port int) error
 }
 
 func New(version string, cfg *store.ConfigStore, logs *store.LogStore, eng *engine.Engine, wcache *weather.Cache, static fs.FS, applyOutput func(model.Settings) error) *Server {
@@ -50,6 +53,9 @@ func New(version string, cfg *store.ConfigStore, logs *store.LogStore, eng *engi
 // SetMetricsHandler registers the Prometheus handler served at /metrics when
 // the setting is enabled.
 func (s *Server) SetMetricsHandler(h http.Handler) { s.metrics = h }
+
+// SetWebPortApplier registers the runtime port-move callback.
+func (s *Server) SetWebPortApplier(fn func(port int) error) { s.applyWebPort = fn }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -582,6 +588,25 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+	}
+
+	// A web-port change moves the listener at runtime. On failure (occupied
+	// or privileged port) the old port stays active and the setting rolls
+	// back, so the UI can report the problem immediately.
+	if prev.WebPort != body.WebPort && s.applyWebPort != nil {
+		if err := s.applyWebPort(body.WebPort); err != nil {
+			s.cfg.Update(func(c *model.Config) error {
+				c.Settings.WebPort = prev.WebPort
+				return nil
+			})
+			writeErr(w, http.StatusBadRequest,
+				fmt.Sprintf("cannot listen on port %d: %v — port setting reverted", body.WebPort, err))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true, "portChanged": true, "webPort": body.WebPort,
+		})
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":              true,

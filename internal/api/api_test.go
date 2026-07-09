@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -533,6 +534,63 @@ func TestAuthFlow(t *testing.T) {
 	}
 	if code, _ := e.call(t, "GET", "/api/state", nil); code != 200 {
 		t.Errorf("after disabling auth the API must be open again, got %d", code)
+	}
+}
+
+func TestWebPortAppliedAtRuntime(t *testing.T) {
+	e := newEnv(t)
+	var appliedPort int
+	srv := New("test", e.cfg, e.logs, engine.New(e.cfg, hardware.NewMock(), e.logs, nil, nil), nil, nil, nil)
+	srv.SetWebPortApplier(func(port int) error {
+		if port == 9999 {
+			return errors.New("bind: permission denied")
+		}
+		appliedPort = port
+		return nil
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	call := func(payload map[string]any) (int, map[string]any) {
+		var buf bytes.Buffer
+		json.NewEncoder(&buf).Encode(payload)
+		req, _ := http.NewRequest("PUT", ts.URL+"/api/settings", &buf)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+
+	// Successful move: applier called, response reports the new port.
+	var settings map[string]any
+	resp, _ := http.Get(ts.URL + "/api/settings")
+	json.NewDecoder(resp.Body).Decode(&settings)
+	resp.Body.Close()
+
+	settings["webPort"] = 8090
+	code, out := call(settings)
+	if code != 200 || out["portChanged"] != true || out["webPort"].(float64) != 8090 {
+		t.Fatalf("port move: %d %+v", code, out)
+	}
+	if appliedPort != 8090 {
+		t.Fatalf("applier got %d, want 8090", appliedPort)
+	}
+	if got := e.cfg.Snapshot().Settings.WebPort; got != 8090 {
+		t.Fatalf("config port = %d, want 8090", got)
+	}
+
+	// Failed bind: 400, setting rolls back to the previous port.
+	settings["webPort"] = 9999
+	code, out = call(settings)
+	if code != 400 || out["error"] == nil {
+		t.Fatalf("failed bind: want 400 with error, got %d %+v", code, out)
+	}
+	if got := e.cfg.Snapshot().Settings.WebPort; got != 8090 {
+		t.Errorf("port must roll back to 8090, got %d", got)
 	}
 }
 

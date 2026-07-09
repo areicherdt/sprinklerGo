@@ -288,6 +288,7 @@ const de = {
   'set.exampleFmt': 'Beispiel Restlaufzeit-Format: {t}',
   'set.saved': 'Einstellungen gespeichert.',
   'set.savedRestart': 'Gespeichert. Der neue Web-Port gilt nach einem Neustart des Dienstes.',
+  'set.portMoved': 'Gespeichert — die Oberfläche ist ab sofort unter dem neuen Port erreichbar:',
   'set.savedOutputWarn': 'Gespeichert, aber der Ausgang konnte nicht initialisiert werden: {err}',
 }
 
@@ -565,6 +566,7 @@ const en: Record<MsgKey, string> = {
   'set.exampleFmt': 'Example remaining-time format: {t}',
   'set.saved': 'Settings saved.',
   'set.savedRestart': 'Saved. The new web port applies after restarting the service.',
+  'set.portMoved': 'Saved — the UI is now reachable on the new port:',
   'set.savedOutputWarn': 'Saved, but the output could not be initialized: {err}',
 }
 

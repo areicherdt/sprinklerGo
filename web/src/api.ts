@@ -113,6 +113,8 @@ export interface SaveSettingsResult {
   ok: boolean
   restartRequired?: boolean
   outputError?: string
+  portChanged?: boolean
+  webPort?: number
 }
 
 export interface WeatherCheck {

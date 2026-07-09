@@ -20,6 +20,10 @@ ExecStart=/usr/local/bin/sprinklerd -config /var/lib/sprinklerd/config.json -db 
 Restart=on-failure
 RestartSec=5
 
+# Allow binding privileged ports (e.g. web port 80) as unprivileged user.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
 # Hardening (kept moderate so /dev/gpiochip0 and external scripts still work)
 NoNewPrivileges=true
 ProtectHome=true

@@ -79,6 +79,15 @@ sudo systemctl enable --now sprinklerd
 ```
 
 Konfiguration und Log-Datenbank liegen dann unter `/var/lib/sprinklerd/`.
+
+**Web-Port ändern:** Ein neuer Port (Einstellungen → System) greift sofort —
+der Server zieht ohne Neustart um, die Oberfläche verlinkt die neue Adresse.
+Schlägt das Binden fehl (Port belegt oder ohne Berechtigung), bleibt der alte
+Port aktiv und die Einstellung wird zurückgesetzt. Für **privilegierte Ports
+wie 80** braucht der Dienst `AmbientCapabilities=CAP_NET_BIND_SERVICE` — in
+der mitgelieferten Unit ab v0.8.2 enthalten; bei älteren Installationen die
+Unit-Datei aktualisieren und `sudo systemctl daemon-reload && sudo systemctl
+restart sprinklerd` ausführen.
 Für GPIO-Ausgänge braucht der Dienst Zugriff auf `/dev/gpiochip0` — die Unit
 hängt den Nutzer dafür an die Gruppe `gpio`. Logs: `journalctl -u sprinklerd -f`.
 
