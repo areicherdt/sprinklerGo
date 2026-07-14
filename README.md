@@ -187,6 +187,41 @@ scrape_configs:
 3. Topics liegen unter dem konfigurierten Präfix (`sprinklergo/...`),
    Kommandos auf `.../set`, Verfügbarkeit auf `sprinklergo/availability`.
 
+## Homebridge (HomeKit) anbinden
+
+Homebridge nutzt dieselben MQTT-Topics über das Plugin
+[homebridge-mqttthing](https://github.com/arachnetech/homebridge-mqttthing);
+die Home-Assistant-Discovery-Topics werden dabei ignoriert. MQTT in
+sprinklerGo aktivieren (siehe oben), Plugin installieren, dann je Zone ein
+Accessory anlegen — **die Topics sind 0-basiert** (`zone/0` = Zone 1):
+
+```json
+{
+  "accessory": "mqttthing",
+  "type": "valve",
+  "valveType": "sprinkler",
+  "name": "Zone 1",
+  "url": "mqtt://<broker-ip>:1883",
+  "topics": {
+    "getActive": "sprinklergo/zone/0/state",
+    "setActive": "sprinklergo/zone/0/set",
+    "getInUse": "sprinklergo/zone/0/state",
+    "getOnline": "sprinklergo/availability"
+  },
+  "onValue": "ON",
+  "offValue": "OFF",
+  "onlineValue": "online",
+  "offlineValue": "offline"
+}
+```
+
+Die Zone erscheint in HomeKit als Sprinkler; Einschalten startet einen
+manuellen Lauf mit dem eingestellten Timer. Automatik
+(`sprinklergo/system/run/state|set`) und Regenpause
+(`sprinklergo/rain_delay/state|set`, ON = 24 h Pause) lassen sich analog als
+`"type": "switch"` mit `getOn`/`setOn` und `onValue`/`offValue` `ON`/`OFF`
+anlegen.
+
 ## API-Kurzreferenz
 
 Vollständige Spezifikation: [internal/api/openapi.json](internal/api/openapi.json),
